@@ -25,7 +25,7 @@ class QuotaWatchApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp.router(
+    return MaterialApp(
       title: 'Quota Watch',
       debugShowCheckedModeBanner: false,
 
@@ -34,8 +34,10 @@ class QuotaWatchApp extends StatelessWidget {
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
 
-      // 路由（用 go_router 风格的静态配置，这里先简化手写）
-      routerConfig: AppRouter.config,
+      // 路由：先使用 Flutter 原生的命名路由，便于理解页面栈。
+      navigatorKey: AppRouter.navigatorKey,
+      onGenerateRoute: AppRouter.onGenerateRoute,
+      initialRoute: '/',
     );
   }
 }

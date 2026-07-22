@@ -4,8 +4,8 @@
 //
 // 【阶段 1 学习要点】
 // - 路由 = 不同页面的"地址"。点列表项跳详情页，本质是切地址
-// - Flutter 的 Navigator 2.0 配 Router API 略复杂，这里先用手写的 GoRouter 风格封装
-// - 阶段 6 上线时再换正式的 go_router 包
+// - 当前先用 MaterialApp 的 onGenerateRoute，先理解页面地址和页面栈
+// - 页面变复杂时再评估 go_router，不为学习版提前引入额外抽象
 //
 // ============================================================================
 
@@ -44,16 +44,4 @@ class AppRouter {
     }
   }
 
-  // 简化版 routerConfig（给 MaterialApp.router 用）
-  static RouterConfig<Object> get config => RouterConfig(
-        routerDelegate: RouterDelegate(
-          builder: (context, state) => Navigator(
-            observers: [observer],
-            onGenerateRoute: onGenerateRoute,
-            pages: const [
-              MaterialPage(child: HomePage()),
-            ],
-          ),
-        ),
-      );
 }
