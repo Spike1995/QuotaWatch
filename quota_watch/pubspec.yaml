@@ -1,0 +1,35 @@
+name: quota_watch
+description: "AI Coding Plan 额度查询器 - 统一查看 Codex / GLM / Kimi 的已用/剩余/重置时间"
+
+# 阶段 1 学习要点：
+# - pubspec.yaml 是 Flutter 项目的"清单文件"，类似 package.json
+# - 这里声明项目名、依赖、资源文件
+# - 改完依赖要跑 `flutter pub get`
+
+publish_to: "none"   # 私有项目，不发布到 pub.dev
+version: 0.1.0+1     # 版本号：主版本.次版本.修订号+构建号
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"   # 适配 Dart 3
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ===== 阶段 1 用到的包（UI 相关） =====
+  cupertino_icons: ^1.0.8        # iOS 风格图标
+  google_fonts: ^6.2.1           # 轻松使用 Google Fonts（中文友好）
+  intl: ^0.19.0                  # 日期/时间格式化（倒计时、相对时间用）
+
+  # ===== 阶段 2 会用到的包（先注释，到时再启用） =====
+  # dio: ^5.4.0                    # HTTP 客户端（比内置 http 更强大）
+  # flutter_riverpod: ^2.4.0       # 状态管理
+  # shared_preferences: ^2.2.0     # 简单本地存储
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0          # 代码规范检查
+
+flutter:
+  uses-material-design: true     # 启用 Material Design 图标
