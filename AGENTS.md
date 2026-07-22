@@ -39,6 +39,7 @@ Use at most one worker by default. Parallel read-only reviews are acceptable whe
 ## Learning rules
 
 - Do not begin with long, detached theory. Explain concepts where they first appear, then run a small experiment.
+- When asking the user to run a command, edit a file, make a choice, or complete a learning step, add one brief sentence explaining why that action matters in the current engineering workflow.
 - Do not treat successful startup as proof of correctness; test at least one failure or boundary path.
 - Preserve one approximately 20-minute no-AI exercise each week. Codex may define and later review it but must not complete it for the user.
 - If the user cannot explain a critical change, shrink the explanation and experiment; do not advance merely because code exists.
