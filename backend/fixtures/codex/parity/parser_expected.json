@@ -1,0 +1,29 @@
+{
+  "_comment": "Python/Dart 共享黄金结果，由脱敏 Codex app-server 样例派生。",
+  "provider": "codex",
+  "planName": "ChatGPT Plus",
+  "planType": "plus",
+  "windows": [
+    {
+      "label": "5 小时窗口",
+      "used": 25.0,
+      "limit": 100.0,
+      "unit": "percent",
+      "resetAt": "2025-10-09T08:53:20Z",
+      "note": "Codex app-server 本机只读数据"
+    },
+    {
+      "label": "7 天窗口",
+      "used": 80.0,
+      "limit": 100.0,
+      "unit": "percent",
+      "resetAt": "2025-10-15T03:46:40Z",
+      "note": "Codex app-server 本机只读数据"
+    }
+  ],
+  "credits": {
+    "hasCredits": true,
+    "unlimited": false,
+    "balance": "50"
+  }
+}

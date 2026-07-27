@@ -1086,6 +1086,58 @@ Codex、Kimi 与 GLM 已完成代码、离线自动验证和各自的脱敏本�
 - 完成一次注销/登录人工验收；若后续制作安装器，再把启动器定位从仓库搜索
   升级为安装目录契约，并增加卸载时清理启动项。
 
+## 2026-07-27 / 瘦身路线 / Stage 12 纯净生产运行环境
+
+### 本次目标
+
+- 保留现有 Flutter UI，把 Python 开发依赖与生产运行依赖彻底分开。
+- 让实际 GUI 启动器优先使用经过验证的 `.venv-runtime`。
+
+### 工程修改
+
+- 新增 `backend/requirements-runtime.lock`，锁定16项直接和传递运行依赖。
+- 新增 `scripts/build_runtime_venv.ps1`：精确重建
+  `backend/.venv-runtime`，使用 `--without-pip`、`--no-compile` 和
+  `--no-deps`，并验证核心导入与开发包排除。
+- 启动脚本优先使用 `.venv-runtime/Scripts/pythonw.exe`，缺失时才回退
+  `.venv`，因此现有开发流程仍然可用。
+- 后端以 Python `-B` 和 `PYTHONDONTWRITEBYTECODE=1` 启动，避免首次运行
+  生成 `.pyc` 让生产环境重新膨胀。
+- 更新源码守卫；同时校准已被 Stage 12 悬浮窗淡出功能淘汰的旧透明度断言，
+  没有修改 Flutter UI。
+
+### 体积证据
+
+- 开发环境 `.venv`：55.75 MiB。
+- 纯净运行环境 `.venv-runtime`：11.64 MiB。
+- 减少：44.11 MiB，约79%。
+- Smoke Test 前后均为 `12,208,005` bytes，新增 `.pyc` 数量为0。
+- 运行环境不包含 Pillow、pytest、Pygments 或 pip。
+
+### 验证证据
+
+- 运行环境构建和 `-ValidateOnly`：通过。
+- 离线 Launcher Smoke Test：启动、健康、响应和清理全部通过。
+- 后端：432项测试全部通过。
+- Flutter：74项测试全部通过。
+- `flutter analyze`：无问题。
+- 实际 GUI 重启：`/health=ok`，8000单监听，前端和 launcher 各1个；
+  `.venv-runtime` 后端1个，开发 `.venv` 后端0个。
+- 第一次重启曾复用旧开发后端；清理精确的8000端口所有者及其 venv 父进程后
+  再启动，才得到有效的生产环境证据。
+
+### 反向讲解
+
+- `requirements.txt` 写得少并不等于发布环境真的小；必须在独立目录安装并
+  验证实际内容。
+- 本阶段节省的是磁盘，Python进程仍然存在；下一阶段只有把 Provider 解析和
+  请求逐步迁入 Dart，才会开始减少常驻内存。
+
+### 下一张最小任务卡
+
+- 迁移 Kimi Provider 的纯解析契约到 Dart：先用相同 Fixture 做 Python/Dart
+  对照，不改变真实请求、凭据存储或现有 UI。
+
 ## 2026-07-26 / 阶段 11 / 桌面悬浮窗自治与视觉修正
 
 ### 改动摘要
@@ -1172,3 +1224,135 @@ Codex、Kimi 与 GLM 已完成代码、离线自动验证和各自的脱敏本�
 ### 仍需用户验收
 
 - 日常三条紧凑行、hover 展开、离开约半秒淡出、告警状态变色。
+
+## 2026-07-27 / 阶段 13 / Kimi 纯解析器迁入 Dart
+
+### 改动摘要
+
+- 新增 `KimiUsageParser`：把 Kimi `/coding/v1/usages` 的 `usage` 与
+  `limits` 归一为现有 Dart `QuotaWindow`；覆盖 `remaining` 回退、
+  used/limit 钳制、标签优先级、数字字符串、reset 别名、相对秒数和
+  纳秒截断。
+- 解析器是纯函数边界：没有 HTTP、存储、凭据或 UI 依赖；本卡没有修改
+  Flutter 页面、悬浮窗布局或可见文案。
+- 四个现有脱敏响应样例共用
+  `backend/fixtures/kimi/parity/parser_expected.json` 黄金结果；Python
+  测试验证旧解析器，Dart 测试验证新解析器，形成跨语言同输入/同输出锁。
+- 黄金文件放入 `parity/` 子目录，避免被既有“每个 Kimi 根目录 JSON 都是
+  Provider 原始响应”的发现规则误判。
+
+### 验证结果
+
+- Dart 定向测试：11 项通过（4 个 Fixture 对等 + 7 个关键边界）。
+- Python Kimi 定向回归：55 项通过。
+- Python 全量回归：433 项通过。
+- Flutter 全量测试：85 项通过。
+- `flutter analyze`：无问题（首次发现 1 条 null-aware 风格提示，修正后
+  复跑通过）。
+
+### 当前边界与下一卡
+
+- 已迁移的是 `JSON -> QuotaWindow`，真实 Kimi HTTP 和 API Key 读取仍由
+  Python/FastAPI 承担；因此这一步本身不减少运行时进程。
+- 下一卡迁移 Windows 端安全凭据读取和 Kimi HTTP 到 Dart Repository，
+  用本解析器接入现有统一模型；真实 Key 不进入测试、日志、截图或 Git。
+
+## 2026-07-27 / 阶段 14 / Kimi 真实查询迁入 Windows Dart
+
+### 改动摘要
+
+- 新增 `KimiQuotaRepository`：固定调用官方
+  `https://api.kimi.com/coding/v1/usages`，关闭重定向，响应限制 1 MiB，
+  通过阶段 13 解析器产出统一模型。
+- Windows runner 的既有 MethodChannel 增加只读凭据桥；原生端只接受
+  `kimi` / `glm` 两个名字并映射到固定 WinCred 目标，不枚举凭据、不输出
+  Key、不把秘密放进错误信息。
+- 新增条件平台 Repository 工厂：只有 Windows `kimi_real` 改走 Dart；
+  Web、Android、Codex、GLM 和 `all_real` 仍走原 FastAPI，避免迁移中途
+  改变其他平台/场景。
+- Dart Kimi 链路保留进程内最后成功值；后续刷新失败时继续显示旧窗口，
+  `status=error` 并附归一化“数据可能已过期”提示。
+- 生产 GUI 启动器仍清除 Provider 环境变量，不把 Key 注入 Flutter；
+  正常发布路径从 Windows 凭据管理器按需读取。环境变量入口仅保留给开发者
+  直接启动调试。
+
+### 验证结果
+
+- Kimi Repository + parser + WinCred 通道定向测试：29 项通过。
+- Windows 原生源码安全守卫：12 项通过。
+- `flutter analyze`：无问题。
+- Windows Profile 原生构建成功：
+  `build/windows/x64/runner/Profile/quota_watch.exe`。
+- Release 构建先完成编译、在链接时因当前正在运行的正式悬浮窗锁住
+  `Release/quota_watch.exe`（LNK1104）而停止；为避免打断用户，改用独立
+  Profile 目录完成同一 C++/Dart 源码的完整链接验证。
+
+### 当前边界与下一卡
+
+- `kimi_real` 已成为第一条不经过 Python/FastAPI 的真实 Provider 纵向链；
+  默认 `all_real` 仍需要后端，因此当前生产启动进程数和常驻内存尚未下降。
+- 下一卡迁移 GLM、Codex、配置元数据与凭据写入，再把默认综合查询切到
+  Dart，届时才删除 FastAPI 启动职责并测量真实单进程收益。
+
+## 2026-07-27 / 阶段 15 / 三家 Provider 与本机配置全部迁入 Dart
+
+### 改动摘要
+
+- GLM 新增 Dart 解析器与固定官方 HTTPS Repository；Codex 新增官方
+  `codex app-server` JSONL Client、解析器和 Repository。Kimi 沿用阶段 14
+  的直接链路。
+- 三家解析器各用脱敏 Fixture 与 Python/Dart 共用黄金结果锁定语义；网络
+  响应限 1 MiB、禁重定向，Codex 子进程不经过 shell，超时后确定性清理。
+- 新增 `AllRealQuotaRepository`：并发查询、稳定排序、单家失败隔离和最后
+  成功缓存；Windows 四个真实场景都直接走 Dart，Web/Android 继续走后端。
+- 凭据保存、替换、删除迁入固定目标 WinCred 原生通道；本地 JSON 只存标签
+  与手动备注。现有设置页只替换内部 Repository，没有调整可见 UI。
+
+### 验证证据
+
+- Python/Dart 解析对等、错误映射、缓存、并发隔离、进程限长与超时路径均有
+  离线测试。
+- Windows Profile 与 Release 原生构建均成功。
+- 未读取或记录真实 Key、额度值、原始 Provider 响应。
+
+### 反向讲解
+
+- “把解析器搬到 Dart”还不能删除后端；请求、凭据、元数据、聚合与失败回退
+  全部迁完，默认 `all_real` 才真正脱离 Python。
+
+## 2026-07-27 / 阶段 16 / 单进程启动器与最终瘦身
+
+### 改动摘要
+
+- 根 GUI 启动器缩减为单实例唤醒、Release 定位、Provider 环境变量清理、
+  早期失败提示；直接启动 Flutter 后退出，不再监督 PowerShell/FastAPI。
+- Windows 自启动仍写当前用户 `HKCU Run`，目标是根启动器；原生查找与根
+  启动器均已解除对 `scripts/` 的隐性依赖。现有开关状态未被自动修改。
+- Python 后端、纯运行 venv 和开发脚本保留在仓库用于 Web/Android 与离线
+  回归，但不进入 Windows 发布运行链。
+
+### 最终验证证据
+
+- Python：432 项全部通过；Flutter：145 项全部通过；`flutter analyze`
+  0 问题；Windows Release、根启动器和 Web Release 均构建成功。
+- 根启动器实际重启后：1 个 `quota_watch.exe`、0 个常驻 launcher、0 个
+  backend Python、8000 端口 0 监听；刷新稳定后无遗留 Codex 子进程。
+- 窗口探针：可见、顶层桌面窗口、非 TopMost、非 ToolWindow；保留原桌面
+  悬浮窗行为，没有修改 UI。
+- 当前 Windows Release 为 32.12 MiB，启动器约 0.04 MiB；淘汰的纯运行
+  `.venv-runtime` 为 11.64 MiB。
+- 另建 32.16 MiB 最小发布树，只含根启动器与嵌套 Release：在没有
+  `backend/`、`scripts/`、venv 的情况下实际启动成功，launcher 随即退出，
+  无 Python 与 8000 监听；验证后已清理临时副本并恢复正式实例。
+- 同机空闲采样：新 Flutter 单进程 134.12 MiB 工作集、104.53 MiB 私有
+  内存；旧离线 FastAPI 运行链单独为 57.31 MiB 工作集、39.50 MiB 私有
+  内存，因此至少省去这部分常驻开销。
+- 现有自启动注册表值已启用且正确指向根启动器；本轮只读取验证，没有擅自
+  改动用户设置。
+
+### 反向讲解与用户验收
+
+- 真正瘦身来自删除常驻运行层，不是删一个置顶按钮；置顶功能本身只占少量
+  代码与近乎不可测的闲置内存。
+- 仍需用户做一次注销/登录验收：确认登录后直接恢复桌面悬浮插件、三家卡片
+  的方向和状态正常。该步骤验证 Windows 登录时序，自动测试不能替代。

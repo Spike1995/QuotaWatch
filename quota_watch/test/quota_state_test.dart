@@ -3,11 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:quota_watch/app/state/quota_state.dart';
 import 'package:quota_watch/data/models/quota_models.dart' as models;
-import 'package:quota_watch/data/repositories/backend_quota_repository.dart';
+import 'package:quota_watch/data/repositories/all_real_quota_repository.dart';
 import 'package:quota_watch/data/repositories/quota_repository.dart';
 
 // 阶段 9（假数据移除）后：DataSourceMode/DemoScenario 已删除，AppSettings
-// 保留 QuotaScenario + backendUrl + 布局偏好，固定走真实后端。
+// 保留 QuotaScenario + backendUrl + 布局偏好。Windows 发布版默认直接在
+// Dart 内聚合三家 Provider，其他平台仍可通过 backendUrl 访问后端。
 
 class _SequenceRepository implements QuotaRepository {
   var calls = 0;
@@ -82,13 +83,13 @@ void main() {
     expect(repository.calls, 2);
   });
 
-  test('quotaRepositoryProvider 默认创建 BackendQuotaRepository', () {
+  test('Windows 默认创建 Dart 内的 AllRealQuotaRepository', () {
     final container = ProviderContainer();
     addTearDown(container.dispose);
 
     expect(
       container.read(quotaRepositoryProvider),
-      isA<BackendQuotaRepository>(),
+      isA<AllRealQuotaRepository>(),
     );
   });
 

@@ -1,0 +1,65 @@
+{
+  "_comment": "Python/Dart 共享黄金结果。仅由上一级目录三个脱敏响应样例派生，不含真实账户数据或凭据。",
+  "usage_current_percentage.json": [
+    {
+      "label": "5 小时窗口",
+      "used": 75.0,
+      "limit": 100.0,
+      "unit": "percent",
+      "resetAt": "2026-01-09T23:06:40Z",
+      "note": "按 GLM 服务端已用比例"
+    },
+    {
+      "label": "周窗口",
+      "used": 50.0,
+      "limit": 100.0,
+      "unit": "percent",
+      "resetAt": "2026-01-14T14:13:20Z",
+      "note": "按 GLM 服务端已用比例"
+    },
+    {
+      "label": "月度/MCP 工具窗口",
+      "used": 25.0,
+      "limit": 100.0,
+      "unit": "percent",
+      "resetAt": "2026-01-19T05:20:00Z",
+      "note": "按 GLM 服务端已用比例"
+    }
+  ],
+  "usage_typical.json": [
+    {
+      "label": "5 小时窗口",
+      "used": 12345678.0,
+      "limit": 40000000.0,
+      "unit": "tokens",
+      "resetAt": "2025-10-09T08:53:20Z",
+      "note": null
+    },
+    {
+      "label": "周窗口",
+      "used": 89000000.0,
+      "limit": 280000000.0,
+      "unit": "tokens",
+      "resetAt": "2025-10-15T03:46:40Z",
+      "note": null
+    }
+  ],
+  "usage_with_details.json": [
+    {
+      "label": "5 小时窗口",
+      "used": 12345678.0,
+      "limit": 40000000.0,
+      "unit": "tokens",
+      "resetAt": "2025-10-09T08:53:20Z",
+      "note": null
+    },
+    {
+      "label": "月度/MCP 工具窗口",
+      "used": 30.0,
+      "limit": 100.0,
+      "unit": "calls",
+      "resetAt": null,
+      "note": null
+    }
+  ]
+}

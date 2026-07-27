@@ -7,7 +7,25 @@ import '../models/credential_profile.dart';
 import '../models/quota_models.dart';
 import 'backend_endpoint_policy.dart';
 
-class CredentialProfileRepository {
+abstract interface class CredentialProfileStore {
+  Future<List<CredentialProfileSummary>> all();
+
+  Future<CredentialProfileSummary> saveApiKey({
+    required Provider provider,
+    required String label,
+    required String apiKey,
+  });
+
+  Future<CredentialProfileSummary> saveCodexNote({
+    required String label,
+    required int? resetCount,
+    required DateTime? resetExpiresAt,
+  });
+
+  Future<CredentialProfileSummary> delete(Provider provider);
+}
+
+class CredentialProfileRepository implements CredentialProfileStore {
   final http.Client client;
   final String baseUrl;
   final Duration timeout;
@@ -18,6 +36,7 @@ class CredentialProfileRepository {
     this.timeout = const Duration(seconds: 10),
   });
 
+  @override
   Future<List<CredentialProfileSummary>> all() async {
     final response = await _send(
       () => client.get(
@@ -41,6 +60,7 @@ class CredentialProfileRepository {
     }
   }
 
+  @override
   Future<CredentialProfileSummary> saveApiKey({
     required Provider provider,
     required String label,
@@ -58,6 +78,7 @@ class CredentialProfileRepository {
     );
   }
 
+  @override
   Future<CredentialProfileSummary> saveCodexNote({
     required String label,
     required int? resetCount,
@@ -73,6 +94,7 @@ class CredentialProfileRepository {
     );
   }
 
+  @override
   Future<CredentialProfileSummary> delete(Provider provider) async {
     final response = await _send(
       () => client.delete(

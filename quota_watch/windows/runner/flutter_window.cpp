@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <windows.h>
+#include <wincred.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -363,6 +364,12 @@ constexpr wchar_t kStartupRegistryPath[] =
 constexpr wchar_t kStartupValueName[] = L"Quota Watch";
 constexpr wchar_t kLauncherFileName[] =
     L"\u542f\u52a8 Quota Watch.exe";
+constexpr wchar_t kKimiCredentialTarget[] = L"QuotaWatch/Kimi";
+constexpr wchar_t kGlmCredentialTarget[] = L"QuotaWatch/GLM";
+constexpr DWORD kGenericCredentialType = CRED_TYPE_GENERIC;
+constexpr DWORD kMaxCredentialBytes = 8192;
+constexpr DWORD kMaxPersistedCredentialBytes = 2048;
+constexpr DWORD kMaxCredentialMetadataBytes = 64 * 1024;
 
 bool IsExistingFile(const std::wstring& path) {
   const DWORD attributes = GetFileAttributesW(path.c_str());
@@ -391,9 +398,7 @@ std::optional<std::wstring> FindQuotaWatchLauncher() {
   for (int level = 0; level < 8 && !directory.empty(); ++level) {
     const std::wstring launcher =
         directory + L"\\" + kLauncherFileName;
-    const std::wstring script =
-        directory + L"\\scripts\\start_quota_watch.ps1";
-    if (IsExistingFile(launcher) && IsExistingFile(script)) {
+    if (IsExistingFile(launcher)) {
       return launcher;
     }
     const size_t separator = directory.find_last_of(L"\\/");
@@ -495,6 +500,188 @@ bool WriteStartupEnabled(bool enable) {
       reinterpret_cast<const BYTE*>(command.c_str()), byte_count);
   RegCloseKey(key);
   return set_result == ERROR_SUCCESS;
+}
+
+const wchar_t* CredentialTargetForProvider(const std::string& provider) {
+  if (provider == "kimi") {
+    return kKimiCredentialTarget;
+  }
+  if (provider == "glm") {
+    return kGlmCredentialTarget;
+  }
+  return nullptr;
+}
+
+bool ReadProviderCredential(const std::string& provider,
+                            std::optional<std::string>* value) {
+  const wchar_t* target = CredentialTargetForProvider(provider);
+  if (target == nullptr) {
+    return false;
+  }
+
+  PCREDENTIALW credential = nullptr;
+  if (!CredReadW(target, kGenericCredentialType, 0, &credential)) {
+    if (GetLastError() == ERROR_NOT_FOUND) {
+      *value = std::nullopt;
+      return true;
+    }
+    return false;
+  }
+
+  bool success = false;
+  try {
+    const DWORD size = credential->CredentialBlobSize;
+    const char* bytes =
+        reinterpret_cast<const char*>(credential->CredentialBlob);
+    const bool valid_size = size <= kMaxCredentialBytes;
+    const bool valid_utf8 =
+        size == 0 ||
+        (bytes != nullptr &&
+         MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes,
+                             static_cast<int>(size), nullptr, 0) != 0);
+    if (valid_size && valid_utf8) {
+      *value = size == 0 ? std::string() : std::string(bytes, size);
+      success = true;
+    }
+  } catch (...) {
+    success = false;
+  }
+  CredFree(credential);
+  return success;
+}
+
+bool WriteProviderCredential(const std::string& provider,
+                             const std::string& secret) {
+  const wchar_t* target = CredentialTargetForProvider(provider);
+  if (target == nullptr || secret.empty() ||
+      secret.size() > kMaxPersistedCredentialBytes ||
+      secret.find('\r') != std::string::npos ||
+      secret.find('\n') != std::string::npos ||
+      MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, secret.data(),
+                          static_cast<int>(secret.size()), nullptr, 0) == 0) {
+    return false;
+  }
+
+  CREDENTIALW credential{};
+  credential.Type = kGenericCredentialType;
+  credential.TargetName = const_cast<LPWSTR>(target);
+  credential.CredentialBlobSize = static_cast<DWORD>(secret.size());
+  credential.CredentialBlob =
+      reinterpret_cast<LPBYTE>(const_cast<char*>(secret.data()));
+  credential.Persist = CRED_PERSIST_LOCAL_MACHINE;
+  credential.UserName = const_cast<LPWSTR>(L"Quota Watch");
+  return CredWriteW(&credential, 0) != FALSE;
+}
+
+bool DeleteProviderCredential(const std::string& provider) {
+  const wchar_t* target = CredentialTargetForProvider(provider);
+  if (target == nullptr) {
+    return false;
+  }
+  if (CredDeleteW(target, kGenericCredentialType, 0)) {
+    return true;
+  }
+  return GetLastError() == ERROR_NOT_FOUND;
+}
+
+std::optional<std::wstring> CredentialMetadataPath() {
+  const DWORD required = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
+  if (required <= 1) {
+    return std::nullopt;
+  }
+  std::vector<wchar_t> buffer(required, L'\0');
+  if (GetEnvironmentVariableW(L"LOCALAPPDATA", buffer.data(), required) == 0) {
+    return std::nullopt;
+  }
+  return std::wstring(buffer.data()) +
+         L"\\QuotaWatch\\credential_profiles.json";
+}
+
+bool EnsureCredentialMetadataDirectory(const std::wstring& path) {
+  const size_t separator = path.find_last_of(L"\\/");
+  if (separator == std::wstring::npos) {
+    return false;
+  }
+  const std::wstring directory = path.substr(0, separator);
+  return CreateDirectoryW(directory.c_str(), nullptr) != FALSE ||
+         GetLastError() == ERROR_ALREADY_EXISTS;
+}
+
+bool ReadCredentialMetadata(std::optional<std::string>* value) {
+  const auto path = CredentialMetadataPath();
+  if (!path.has_value()) {
+    return false;
+  }
+  HANDLE file = CreateFileW(path->c_str(), GENERIC_READ, FILE_SHARE_READ,
+                            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+                            nullptr);
+  if (file == INVALID_HANDLE_VALUE) {
+    if (GetLastError() == ERROR_FILE_NOT_FOUND) {
+      *value = std::nullopt;
+      return true;
+    }
+    return false;
+  }
+
+  LARGE_INTEGER size{};
+  bool success = GetFileSizeEx(file, &size) != FALSE && size.QuadPart >= 0 &&
+                 size.QuadPart <= kMaxCredentialMetadataBytes;
+  std::string bytes;
+  if (success) {
+    bytes.resize(static_cast<size_t>(size.QuadPart));
+    DWORD read = 0;
+    success =
+        bytes.empty() ||
+        (ReadFile(file, bytes.data(), static_cast<DWORD>(bytes.size()), &read,
+                  nullptr) != FALSE &&
+         read == bytes.size());
+  }
+  CloseHandle(file);
+  if (success && !bytes.empty()) {
+    success =
+        MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, bytes.data(),
+                            static_cast<int>(bytes.size()), nullptr, 0) != 0;
+  }
+  if (success) {
+    *value = bytes;
+  }
+  return success;
+}
+
+bool WriteCredentialMetadata(const std::string& contents) {
+  if (contents.size() > kMaxCredentialMetadataBytes ||
+      (!contents.empty() &&
+       MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, contents.data(),
+                           static_cast<int>(contents.size()), nullptr, 0) == 0)) {
+    return false;
+  }
+  const auto path = CredentialMetadataPath();
+  if (!path.has_value() || !EnsureCredentialMetadataDirectory(*path)) {
+    return false;
+  }
+  const std::wstring temporary =
+      *path + L"." + std::to_wstring(GetCurrentProcessId()) + L".tmp";
+  HANDLE file = CreateFileW(temporary.c_str(), GENERIC_WRITE, 0, nullptr,
+                            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) {
+    return false;
+  }
+  DWORD written = 0;
+  const bool write_ok =
+      contents.empty() ||
+      (WriteFile(file, contents.data(), static_cast<DWORD>(contents.size()),
+                 &written, nullptr) != FALSE &&
+       written == contents.size());
+  const bool flush_ok = write_ok && FlushFileBuffers(file) != FALSE;
+  CloseHandle(file);
+  const bool replace_ok =
+      flush_ok &&
+      MoveFileExW(temporary.c_str(), path->c_str(),
+                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+  if (!replace_ok) {
+    DeleteFileW(temporary.c_str());
+  }
+  return replace_ok;
 }
 
 bool PlaceOnDesktopLayer(HWND window, bool show_window = true) {
@@ -809,6 +996,118 @@ bool FlutterWindow::OnCreate() {
             result->Error(
                 "startup_write_failed",
                 "The Windows startup setting could not be changed.");
+          } else {
+            result->Success(flutter::EncodableValue(true));
+          }
+          return;
+        }
+        if (call.method_name() == "readProviderApiKey") {
+          const auto *args =
+              std::get_if<flutter::EncodableMap>(call.arguments());
+          if (args == nullptr) {
+            result->Error("invalid_arguments",
+                          "The provider name is missing.");
+            return;
+          }
+          auto it = args->find(flutter::EncodableValue("provider"));
+          if (it == args->end()) {
+            result->Error("invalid_arguments",
+                          "The provider name is missing.");
+            return;
+          }
+          const auto *provider = std::get_if<std::string>(&it->second);
+          if (provider == nullptr ||
+              CredentialTargetForProvider(*provider) == nullptr) {
+            result->Error("invalid_provider",
+                          "The credential provider is not supported.");
+            return;
+          }
+          std::optional<std::string> secret;
+          if (!ReadProviderCredential(*provider, &secret)) {
+            result->Error("credential_read_failed",
+                          "The Windows credential could not be read.");
+          } else if (secret.has_value()) {
+            result->Success(flutter::EncodableValue(*secret));
+          } else {
+            result->Success();
+          }
+          return;
+        }
+        if (call.method_name() == "writeProviderApiKey" ||
+            call.method_name() == "deleteProviderApiKey") {
+          const auto *args =
+              std::get_if<flutter::EncodableMap>(call.arguments());
+          if (args == nullptr) {
+            result->Error("invalid_arguments",
+                          "The credential arguments are missing.");
+            return;
+          }
+          auto provider_it =
+              args->find(flutter::EncodableValue("provider"));
+          const auto *provider =
+              provider_it == args->end()
+                  ? nullptr
+                  : std::get_if<std::string>(&provider_it->second);
+          if (provider == nullptr ||
+              CredentialTargetForProvider(*provider) == nullptr) {
+            result->Error("invalid_provider",
+                          "The credential provider is not supported.");
+            return;
+          }
+          bool success = false;
+          if (call.method_name() == "deleteProviderApiKey") {
+            success = DeleteProviderCredential(*provider);
+          } else {
+            auto secret_it =
+                args->find(flutter::EncodableValue("secret"));
+            const auto *secret =
+                secret_it == args->end()
+                    ? nullptr
+                    : std::get_if<std::string>(&secret_it->second);
+            success =
+                secret != nullptr &&
+                WriteProviderCredential(*provider, *secret);
+          }
+          if (!success) {
+            result->Error("credential_write_failed",
+                          "The Windows credential could not be changed.");
+          } else {
+            result->Success(flutter::EncodableValue(true));
+          }
+          return;
+        }
+        if (call.method_name() == "readCredentialMetadata") {
+          std::optional<std::string> metadata;
+          if (!ReadCredentialMetadata(&metadata)) {
+            result->Error("metadata_read_failed",
+                          "The local profile metadata could not be read.");
+          } else if (metadata.has_value()) {
+            result->Success(flutter::EncodableValue(*metadata));
+          } else {
+            result->Success();
+          }
+          return;
+        }
+        if (call.method_name() == "writeCredentialMetadata") {
+          const auto *args =
+              std::get_if<flutter::EncodableMap>(call.arguments());
+          if (args == nullptr) {
+            result->Error("invalid_arguments",
+                          "The profile metadata is missing.");
+            return;
+          }
+          auto contents_it =
+              args->find(flutter::EncodableValue("contents"));
+          const auto *contents =
+              contents_it == args->end()
+                  ? nullptr
+                  : std::get_if<std::string>(&contents_it->second);
+          if (contents == nullptr) {
+            result->Error("invalid_arguments",
+                          "The profile metadata is missing.");
+          } else if (!WriteCredentialMetadata(*contents)) {
+            result->Error("metadata_write_failed",
+                          "The local profile metadata could not be written.");
           } else {
             result->Success(flutter::EncodableValue(true));
           }

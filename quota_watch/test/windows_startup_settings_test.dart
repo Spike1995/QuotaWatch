@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:quota_watch/app/state/quota_state.dart';
+import 'package:quota_watch/app/desktop/window_native_io.dart';
 import 'package:quota_watch/presentation/pages/settings_page.dart';
 
 import 'helpers/sample_quota_repository.dart';
@@ -112,5 +113,68 @@ void main() {
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }
+  });
+
+  test('Windows 凭据通道只请求白名单 Provider 且不回显到参数', () async {
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_startupChannel, (call) async {
+      calls.add(call);
+      if (call.method == 'readProviderApiKey') {
+        return 'offline-secret-placeholder';
+      }
+      return null;
+    });
+
+    final value = await WindowNative.readProviderApiKey('kimi');
+    final unsupported = await WindowNative.readProviderApiKey('codex');
+
+    expect(value, 'offline-secret-placeholder');
+    expect(unsupported, isNull);
+    expect(calls, hasLength(1));
+    expect(calls.single.method, 'readProviderApiKey');
+    expect(calls.single.arguments, {'provider': 'kimi'});
+  });
+
+  test('Windows 原生配置写入只使用固定方法和非秘密元数据', () async {
+    final calls = <MethodCall>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(_startupChannel, (call) async {
+      calls.add(call);
+      return switch (call.method) {
+        'writeProviderApiKey' ||
+        'deleteProviderApiKey' ||
+        'writeCredentialMetadata' =>
+          true,
+        'readCredentialMetadata' => '{"version":1,"profiles":{}}',
+        _ => null,
+      };
+    });
+
+    expect(
+      await WindowNative.writeProviderApiKey(
+        'glm',
+        'offline-secret-placeholder',
+      ),
+      isTrue,
+    );
+    expect(await WindowNative.deleteProviderApiKey('glm'), isTrue);
+    expect(await WindowNative.readCredentialMetadata(), contains('profiles'));
+    expect(
+      await WindowNative.writeCredentialMetadata(
+        '{"version":1,"profiles":{"glm":{"label":"Local"}}}',
+      ),
+      isTrue,
+    );
+
+    expect(calls.map((call) => call.method), [
+      'writeProviderApiKey',
+      'deleteProviderApiKey',
+      'readCredentialMetadata',
+      'writeCredentialMetadata',
+    ]);
+    final metadataCall = calls.last;
+    expect(jsonEncode(metadataCall.arguments), isNot(contains('apiKey')));
+    expect(jsonEncode(metadataCall.arguments), isNot(contains('secret')));
   });
 }

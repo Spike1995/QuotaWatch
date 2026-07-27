@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../../data/models/quota_models.dart' show ProviderQuota;
-import '../../data/repositories/backend_quota_repository.dart';
+import '../../data/repositories/platform_quota_repository.dart';
 import '../../data/repositories/quota_repository.dart';
 
 // 阶段 9（假数据移除）：删除了 DataSourceMode.fixture 离线分支、
@@ -122,8 +122,8 @@ final httpClientProvider = Provider<http.Client>((ref) {
 
 final quotaRepositoryProvider = Provider<QuotaRepository>((ref) {
   final settings = ref.watch(appSettingsProvider);
-  // 只走真实后端：场景决定后端查询哪些真实 provider。
-  return BackendQuotaRepository(
+  // Windows 的全部真实场景直接在 Dart 内查询；Web/Android 保留后端路径。
+  return createPlatformQuotaRepository(
     client: ref.watch(httpClientProvider),
     baseUrl: settings.backendUrl,
     scenario: settings.scenario.apiValue,

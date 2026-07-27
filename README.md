@@ -1,32 +1,33 @@
 # Quota Watch
 
-Quota Watch 是一个 Flutter + FastAPI 全栈学习项目，用统一界面展示 Codex、Kimi 和 GLM Coding
-Plan 额度。Windows 版本是普通应用可覆盖、`Win+D` 后仍存在的桌面磁贴；同一套 Flutter UI 也已
-适配 Android 伴随端。
+Quota Watch 是一个 Flutter 全栈学习项目，用统一界面展示 Codex、Kimi 和 GLM Coding Plan
+额度。Windows 发布版是普通应用可覆盖、`Win+D` 后仍存在的单进程桌面磁贴；FastAPI 保留为
+Web/Android 开发与历史回归边界，不再属于 Windows 日常运行时。
 
 Codex 可通过本机官方 `codex app-server` 读取；Kimi 已通过官方 Kimi Code usages 接口完成代码、
 自动验证和脱敏真实结构读取。GLM 的默认关闭适配器与三家综合模式也已实现；在用户另行确认本机实验
 边界后，GLM 完成了脱敏真实结构检查，并修复了会丢失每周窗口及反转百分比方向的字段契约漂移。
 当前可直接返回 5 小时、每周和月度工具调用三个窗口，三项服务端 `percentage` 均按已用比例显示；
-数值一致性仍由用户在 ZCode 官方页面做最终对照。所有真实
-路径仍只在本机后端显式开启，不代表已获得公开或商业化使用许可。
+数值一致性仍由用户在 ZCode 官方页面做最终对照。所有真实路径只在本机客户端中启用，不代表
+已获得公开或商业化使用许可。
 
 ## 当前架构
 
 ```text
 Flutter UI + Riverpod
         ↓ QuotaRepository
-BackendQuotaRepository
-        ↓ HTTP / JSON
-本地 FastAPI
-        ├─ 显式开启：本机 codex app-server → account/rateLimits/read
-        ├─ 环境变量或 Windows 凭据：Kimi Code 官方 HTTPS → /coding/v1/usages
-        ├─ 环境变量或 Windows 凭据：GLM 官方插件契约 → /api/monitor/usage/quota/limit
-        └─ all_real：并发查询各自已显式开启的服务
+Windows AllRealQuotaRepository（Dart，并发 + 单家失败隔离）
+        ├─ 官方本机 codex app-server → account/rateLimits/read（查询后关闭）
+        ├─ 固定 WinCred 目标 → Kimi Code 官方 HTTPS → /coding/v1/usages
+        └─ 固定 WinCred 目标 → GLM 官方插件契约 → /api/monitor/usage/quota/limit
+
+Windows 原生通道
+        ├─ QuotaWatch/Kimi、QuotaWatch/GLM（Key 不进入 JSON/日志）
+        └─ %LOCALAPPDATA%\QuotaWatch\credential_profiles.json（仅标签/手动备注）
 
 Android Flutter 客户端
         ↓ HTTPS，或 USB adb reverse → 127.0.0.1:8000
-可信 Windows FastAPI（凭据仍留在 Windows）
+可选的可信 Windows FastAPI 开发后端
 ```
 
 ## 一键启动（推荐）
@@ -38,7 +39,8 @@ Set-Location D:\APPDEsign
 & '.\启动 Quota Watch.exe'
 ```
 
-启动器是 Windows GUI 程序，日常双击不会再打开终端窗口。若依赖、端口或启动流程失败，会显示一个
+启动器是 Windows GUI 程序，直接启动 Release Flutter EXE 后即退出；不会创建 PowerShell、
+Uvicorn 或常驻 Python。日常双击不会打开终端窗口。若 Release 缺失或启动失败，会显示一个
 简短错误框，并把脱敏诊断信息写入 `%TEMP%\quota-watch-launcher`；日志不会记录 Key 或额度原始响应。
 
 桌面模式默认把 360×680 的半透明玻璃磁贴小组件放在当前显示器右上角并隐藏任务栏按钮。三家订阅
@@ -49,48 +51,39 @@ Set-Location D:\APPDEsign
 也可显示、进入数据设置或退出。即使当前模式已经勾选，再点一次也会恢复之前收起的窗口；托盘
 “显示”和重复双击启动器同样会唤醒已有实例，不会创建第二个窗口。
 
-启动器会依次检查依赖、在后台启动 FastAPI、等待健康检查，再以
-`backend + all_real + http://127.0.0.1:8000` 打开 Windows 桌面悬浮窗。它会把已有的 Kimi/GLM 环境变量
-只临时映射给本次后端子进程，不打印变量值、不写 `.env`，也不修改用户级环境变量。Flutter 结束后，
-启动器只停止它自己创建的后端。旧的 [`启动 Quota Watch.cmd`](启动%20Quota%20Watch.cmd) 保留为
-Edge 开发入口。
+启动器会清空传给 Flutter 子进程的 Provider 环境变量；发布路径按需从 Windows Credential
+Manager 读取固定目标，因此 Key 不经过命令行、启动器日志或 `.env`。旧的
+[`启动 Quota Watch.cmd`](启动%20Quota%20Watch.cmd) 与
+`scripts/start_quota_watch.ps1` 只保留为 Edge/FastAPI 开发入口。
 
-当前 launcher exe 是“仓库内一键入口”，依赖本仓库的 `backend/.venv`、PowerShell 脚本和
-`quota_watch/build/windows/.../Release`，不能单独复制到另一台电脑；可分发安装包属于后续 Stage 9
-打包任务。需要重新生成入口时运行：
+当前 launcher exe 是发布树根的一键入口，只依赖
+`quota_watch/build/windows/.../Release`，不依赖 `scripts/`、`backend/` 或 Python；它不能脱离该
+Release 目录单独复制。需要重新生成入口时运行：
 
 ```powershell
 & .\scripts\build_windows_launcher.ps1
 ```
 
-若 8000 端口已经运行 Quota Watch，启动器会安全复用它；但旧进程不会获得后来新增的环境变量，此时
-先停止旧后端再重新双击即可。若端口属于其他程序，启动器会报错退出，不会结束对方进程。
-
-排查时可使用：
+发布链验证：
 
 ```powershell
-# 只检查依赖、端口和凭据是否存在，不启动应用
-& '.\启动 Quota Watch.exe' -ValidateOnly
-
-# 在独立端口完成纯离线启动/健康/响应/清理烟雾测试
-& '.\启动 Quota Watch.exe' -SmokeTest -BackendPort 18080
-
-# 日常启动，但本次不启用 GLM
-& '.\启动 Quota Watch.exe' -DisableGlm
+& E:\Move\flutter\bin\flutter.bat build windows --release
+& .\scripts\build_windows_launcher.ps1
+& '.\启动 Quota Watch.exe'
 ```
 
-Flutter 桌面前端不接触 Key，也不负责创建 Python；因此“一键”入口仍由外部 launcher 管理两类进程。
-下面的手动流程保留作学习和故障排查备用。
+FastAPI 的离线开发烟雾测试仍可显式运行
+`scripts/start_quota_watch.ps1 -SmokeTest -BackendPort 18080`，但不应放入 Windows 发布包。
 
 ## 设置页安全配置
 
 桌面组件模式隐藏了顶部栏，可从托盘右键选择“数据设置”。Kimi / GLM Key 的推荐录入路径是：
 
-1. 后端地址保持 `http://127.0.0.1:8000`；
+1. 保持默认本机设置；
 2. 在“本机账户与密钥”中填写配置标签和新 Key；
 3. 点击“安全保存”；输入框会在请求成功或失败后立即清空；
-4. Key 只写入当前 Windows 用户的 Credential Manager，接口只返回“是否已配置”和来源，不回显
-   Key。
+4. Key 只写入当前 Windows 用户的 Credential Manager；Dart 模型只保留“是否已配置”和来源，
+   不回显 Key。
 
 Codex 不接受在此粘贴 Token，仍使用官方本机登录。Codex 的“可重置次数 + 到期时间”是明确标注的
 本机手动备注：当前官方本机 credits 契约没有这两个字段，程序不会把手动值伪装成 Provider 返回。
@@ -98,32 +91,15 @@ Codex 不接受在此粘贴 Token，仍使用官方本机登录。Codex 的“�
 
 ## 打开应用并查看 Codex 实际额度
 
-先在第一个 PowerShell 窗口启动后端：
+直接双击根目录启动器，在应用设置中：
 
-```powershell
-Set-Location D:\APPDEsign\backend
-$env:QUOTA_WATCH_CODEX_REAL = '1'
-& .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
+1. 数据场景选择“Codex 真实额度（本机）”或“综合实际额度（本机）”。
+2. 点击“应用并返回”，之后首页刷新会通过 Dart 启动官方 app-server。
 
-再在第二个 PowerShell 窗口启动 Flutter：
+不需要一直打开 Codex 桌面端或 CLI。只需本机 Codex 已经登录；每次查询时，Dart 客户端会短暂启动官方
+app-server，读取额度后立即关闭。
 
-```powershell
-Set-Location D:\APPDEsign\quota_watch
-& E:\Move\flutter\bin\flutter.bat run -d edge
-```
-
-在应用右上角打开设置：
-
-1. 数据来源选择“本地 FastAPI”。
-2. 后端地址保持 `http://127.0.0.1:8000`。
-3. 数据场景选择“Codex 真实额度（本机）”。
-4. 点击“应用并返回”，之后首页刷新会重新读取。
-
-不需要一直打开 Codex 桌面端或 CLI。只需本机 Codex 已经登录；每次查询时，后端会短暂启动官方
-app-server，读取额度后立即关闭。停止应用时，在两个终端分别按 `Ctrl+C`。
-
-如果自动找不到 `codex.exe`，可在启动后端前指定它的**绝对路径**：
+开发者直接启动 Flutter 时，如果自动找不到 `codex.exe`，可指定它的**绝对路径**：
 
 ```powershell
 $env:QUOTA_WATCH_CODEX_COMMAND = 'C:\完整路径\codex.exe'
@@ -210,10 +186,15 @@ Android 应用 ID 为 `com.quotawatch.app`，最低 API 24。APK 不包含 Pytho
 
 ## 轻量化边界
 
-- 日常 Windows 运行链保持 4 个关联进程：GUI 监督启动器、Flutter、venv `pythonw` 引导和实际
-  Python；没有常驻 PowerShell、`cmd` 或 `conhost`。本轮最终 5 秒采样约 232 MB 工作集、
-  179 MB 私有内存，CPU 增量在采样精度内为 0 ms。
-- 当前 Windows Release 完整目录约 32 MB；图标字体在发布构建中已 tree-shake。
+- 日常 Windows 运行稳定后只有 1 个 `quota_watch.exe`；根 GUI 启动器完成 1.5 秒早期失败观察后
+  退出，没有常驻 PowerShell、Python、Uvicorn 或 8000 端口。Codex 官方 app-server 只在刷新时
+  短暂存在，并在查询结束后回收。
+- 2026-07-27 同机空闲采样：Flutter 单进程约 134.12 MiB 工作集、104.53 MiB 私有内存。被移除的
+  离线 FastAPI 运行链单独占约 57.31 MiB 工作集、39.50 MiB 私有内存，因此这是本次架构迁移可
+  直接归因的常驻内存收益，不含已退出的轻量启动器。
+- 当前 Windows Release 完整目录约 32.12 MiB，根启动器约 0.04 MiB；发布时不再携带
+  11.64 MiB 的 `.venv-runtime`，也无需携带 `backend/` 与开发脚本。图标字体在发布构建中已
+  tree-shake。
 - Android 开发只安装命令行 SDK/JDK/必要 NDK，不安装 Android Studio 或模拟器；这些是构建工具，
   不进入 APK，也不随 Quota Watch 常驻。
 - 不通过关闭 Defender、更新、索引、动画或调整系统服务换取数字上的“轻量”；这能避免破坏安全性

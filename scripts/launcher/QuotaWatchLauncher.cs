@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -21,47 +20,11 @@ internal static class QuotaWatchLauncher
     private const uint LeftButtonUpMessage = 0x0202;
     private const string FlutterWindowClass =
         "FLUTTER_RUNNER_WIN32_WINDOW";
-    private const uint ProcessSnapshotFlag = 0x00000002;
-    private const uint SynchronizeAccess = 0x00100000;
-    private const uint ProcessQueryLimitedInformationAccess = 0x00001000;
-    private const uint InfiniteWait = 0xFFFFFFFF;
-    private const uint WaitObject0 = 0x00000000;
-    private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
 
     private delegate bool EnumWindowsCallback(
         IntPtr window,
         IntPtr parameter
     );
-
-    [StructLayout(
-        LayoutKind.Sequential,
-        CharSet = CharSet.Unicode
-    )]
-    private struct ProcessEntry
-    {
-        public uint Size;
-        public uint Usage;
-        public uint ProcessId;
-        public IntPtr DefaultHeapId;
-        public uint ModuleId;
-        public uint ThreadCount;
-        public uint ParentProcessId;
-        public int BasePriority;
-        public uint Flags;
-
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
-        public string ExecutableFile;
-    }
-
-    private sealed class RuntimeHandoff
-    {
-        public bool BackendOwned;
-        public int BackendProcessId;
-        public long BackendStartedUtcTicks;
-        public int DesktopProcessId;
-        public bool DesktopExited;
-        public int DesktopExitCode;
-    }
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetDesktopWindow();
@@ -94,54 +57,6 @@ internal static class QuotaWatchLauncher
         IntPtr lParam
     );
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr CreateToolhelp32Snapshot(
-        uint flags,
-        uint processId
-    );
-
-    [DllImport(
-        "kernel32.dll",
-        CharSet = CharSet.Unicode,
-        SetLastError = true
-    )]
-    private static extern bool Process32First(
-        IntPtr snapshot,
-        ref ProcessEntry entry
-    );
-
-    [DllImport(
-        "kernel32.dll",
-        CharSet = CharSet.Unicode,
-        SetLastError = true
-    )]
-    private static extern bool Process32Next(
-        IntPtr snapshot,
-        ref ProcessEntry entry
-    );
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CloseHandle(IntPtr handle);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr OpenProcess(
-        uint desiredAccess,
-        bool inheritHandle,
-        int processId
-    );
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern uint WaitForSingleObject(
-        IntPtr handle,
-        uint milliseconds
-    );
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool GetExitCodeProcess(
-        IntPtr process,
-        out uint exitCode
-    );
-
     [STAThread]
     private static int Main(string[] args)
     {
@@ -154,10 +69,6 @@ internal static class QuotaWatchLauncher
         {
             if (!ownsInstance)
             {
-                // The previous launcher can briefly retain the mutex after its
-                // Flutter window has already exited. Retry activation while
-                // also waiting for ownership, so a new double-click either
-                // wakes the real window or safely takes over after cleanup.
                 for (int attempt = 0; attempt < 20; attempt++)
                 {
                     if (ActivateExistingQuotaWatch())
@@ -181,11 +92,18 @@ internal static class QuotaWatchLauncher
                 if (!ownsInstance)
                 {
                     ShowError(
-                        "Quota Watch is still starting or shutting down.\n\n" +
+                        "Quota Watch is still starting.\n\n" +
                         "Please wait a few seconds and try again."
                     );
                     return 1;
                 }
+            }
+
+            // A previous launcher may have released the mutex just after its
+            // Flutter window appeared. Recheck before creating another process.
+            if (ActivateExistingQuotaWatch())
+            {
+                return 0;
             }
             return Run(args);
         }
@@ -201,98 +119,74 @@ internal static class QuotaWatchLauncher
         if (repoRoot == null)
         {
             ShowError(
-                "Could not find scripts\\start_quota_watch.ps1.\n\n" +
-                "Keep this launcher inside the Quota Watch repository."
+                "Could not find the Quota Watch Windows release.\n\n" +
+                "Keep this launcher beside the quota_watch release folder."
             );
             return 1;
         }
 
-        if (CanUseBootstrapRuntime(args))
+        string explicitDesktop;
+        if (!TryReadDesktopOverride(args, out explicitDesktop))
         {
-            return RunBootstrapRuntime(repoRoot, args);
+            ShowError("The desktop launcher arguments are invalid.");
+            return 1;
         }
-
-        string script = Path.Combine(
-            repoRoot,
-            "scripts",
-            "start_quota_watch.ps1"
-        );
-        var arguments = new StringBuilder();
-        arguments.Append("-NoLogo -NoProfile -ExecutionPolicy Bypass -File ");
-        arguments.Append(QuoteArgument(script));
-        arguments.Append(" -Desktop");
-        foreach (string argument in args)
+        string desktopExecutable = explicitDesktop ??
+            FindDesktopExecutable(repoRoot);
+        if (
+            String.IsNullOrWhiteSpace(desktopExecutable) ||
+            !File.Exists(desktopExecutable)
+        )
         {
-            arguments.Append(' ');
-            arguments.Append(QuoteArgument(argument));
+            ShowError(
+                "The Windows release executable was not found.\n\n" +
+                "Run: flutter build windows --release"
+            );
+            return 1;
         }
 
         var startInfo = new ProcessStartInfo
         {
-            FileName = "powershell.exe",
-            Arguments = arguments.ToString(),
-            WorkingDirectory = repoRoot,
+            FileName = desktopExecutable,
+            WorkingDirectory = Path.GetDirectoryName(desktopExecutable),
             UseShellExecute = false,
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
         };
+        ClearProviderEnvironment(startInfo);
 
-        var diagnostic = new StringBuilder();
-        object diagnosticLock = new object();
         try
         {
-            using (Process process = Process.Start(startInfo))
+            using (Process desktop = Process.Start(startInfo))
             {
-                if (process == null)
+                if (desktop == null)
                 {
-                    ShowError("PowerShell did not start.");
+                    ShowError("The Quota Watch desktop process did not start.");
                     return 1;
                 }
-                process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs eventArgs)
+                // Catch immediate loader/plugin failures while allowing the GUI
+                // launcher to exit once the desktop process is healthy. The
+                // Flutter process then becomes the only persistent app process.
+                if (desktop.WaitForExit(1500) && desktop.ExitCode != 0)
                 {
-                    AppendDiagnostic(
-                        diagnostic,
-                        diagnosticLock,
-                        eventArgs.Data
+                    string logPath = WriteDiagnosticLog(
+                        "Desktop exited during startup with code " +
+                        desktop.ExitCode + ".",
+                        null
                     );
-                };
-                process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs eventArgs)
-                {
-                    AppendDiagnostic(
-                        diagnostic,
-                        diagnosticLock,
-                        eventArgs.Data
+                    ShowError(
+                        "Quota Watch failed to start.\n\n" +
+                        "Diagnostic log:\n" +
+                        logPath
                     );
-                };
-                process.BeginOutputReadLine();
-                process.BeginErrorReadLine();
-                process.WaitForExit();
-                process.WaitForExit();
-                if (process.ExitCode == 0)
-                {
-                    return 0;
+                    return desktop.ExitCode;
                 }
-
-                string logPath = WriteDiagnosticLog(
-                    diagnostic.ToString(),
-                    null
-                );
-                ShowError(
-                    "Quota Watch failed to start.\n\n" +
-                    "Diagnostic log:\n" +
-                    logPath
-                );
-                return process.ExitCode;
+                return 0;
             }
         }
         catch (Exception exception)
         {
-            string logPath = WriteDiagnosticLog(
-                diagnostic.ToString(),
-                exception
-            );
+            string logPath = WriteDiagnosticLog("", exception);
             ShowError(
                 "Quota Watch launcher failed.\n\n" +
                 "Diagnostic log:\n" +
@@ -302,25 +196,57 @@ internal static class QuotaWatchLauncher
         }
     }
 
-    private static bool CanUseBootstrapRuntime(string[] args)
+    private static void ClearProviderEnvironment(ProcessStartInfo startInfo)
     {
+        foreach (string name in new[]
+        {
+            "QUOTA_WATCH_CODEX_REAL",
+            "QUOTA_WATCH_KIMI_REAL",
+            "QUOTA_WATCH_KIMI_API_KEY",
+            "KIMI_CODING_API_KEY",
+            "QUOTA_WATCH_GLM_REAL",
+            "QUOTA_WATCH_GLM_API_KEY",
+            "GLM_API_KEY",
+        })
+        {
+            startInfo.EnvironmentVariables[name] = "";
+        }
+    }
+
+    private static bool TryReadDesktopOverride(
+        string[] args,
+        out string desktopExecutable
+    )
+    {
+        desktopExecutable = null;
         for (int index = 0; index < args.Length; index++)
         {
-            string option = args[index];
+            string argument = args[index];
+            if (String.Equals(
+                argument,
+                "-DesktopExecutable",
+                StringComparison.OrdinalIgnoreCase
+            ))
+            {
+                if (index + 1 >= args.Length)
+                {
+                    return false;
+                }
+                desktopExecutable = args[++index];
+                continue;
+            }
+
+            // Retain harmless compatibility with old shortcuts while removing
+            // every backend/PowerShell responsibility from the production path.
             if (
                 String.Equals(
-                    option,
+                    argument,
                     "-BackendPort",
                     StringComparison.OrdinalIgnoreCase
                 ) ||
                 String.Equals(
-                    option,
+                    argument,
                     "-StartupTimeoutSeconds",
-                    StringComparison.OrdinalIgnoreCase
-                ) ||
-                String.Equals(
-                    option,
-                    "-DesktopExecutable",
                     StringComparison.OrdinalIgnoreCase
                 )
             )
@@ -332,467 +258,58 @@ internal static class QuotaWatchLauncher
                 index++;
                 continue;
             }
-
-            if (
-                String.Equals(
-                    option,
-                    "-DisableGlm",
-                    StringComparison.OrdinalIgnoreCase
-                ) ||
-                String.Equals(
-                    option,
-                    "-Desktop",
-                    StringComparison.OrdinalIgnoreCase
-                )
-            )
-            {
-                continue;
-            }
-
-            // Validation, smoke, Edge and keep-backend modes are short-lived
-            // developer workflows. Preserve their original PowerShell path.
-            return false;
-        }
-        return true;
-    }
-
-    private static int RunBootstrapRuntime(
-        string repoRoot,
-        string[] args
-    )
-    {
-        string script = Path.Combine(
-            repoRoot,
-            "scripts",
-            "start_quota_watch.ps1"
-        );
-        string runtimeDirectory = Path.Combine(
-            Path.GetTempPath(),
-            "quota-watch-launcher"
-        );
-        Directory.CreateDirectory(runtimeDirectory);
-        string handoffPath = Path.Combine(
-            runtimeDirectory,
-            "runtime-handoff-" +
-            DateTime.UtcNow.ToString("yyyyMMddHHmmssfff") +
-            "-" +
-            Process.GetCurrentProcess().Id +
-            ".txt"
-        );
-        string bootstrapErrorPath = handoffPath + ".error.log";
-        DeleteFileIfPresent(handoffPath);
-        DeleteFileIfPresent(bootstrapErrorPath);
-
-        var arguments = new StringBuilder();
-        arguments.Append("-NoLogo -NoProfile -ExecutionPolicy Bypass -File ");
-        arguments.Append(QuoteArgument(script));
-        arguments.Append(" -Desktop -BootstrapDesktop");
-        arguments.Append(" -RuntimeHandoffPath ");
-        arguments.Append(QuoteArgument(handoffPath));
-        foreach (string argument in args)
-        {
             if (
                 String.Equals(
                     argument,
                     "-Desktop",
                     StringComparison.OrdinalIgnoreCase
-                )
-            )
-            {
-                continue;
-            }
-            arguments.Append(' ');
-            arguments.Append(QuoteArgument(argument));
-        }
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "powershell.exe",
-            Arguments = arguments.ToString(),
-            WorkingDirectory = repoRoot,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden,
-        };
-
-        RuntimeHandoff handoff = null;
-        try
-        {
-            using (Process bootstrap = Process.Start(startInfo))
-            {
-                if (bootstrap == null)
-                {
-                    ShowError("PowerShell bootstrap did not start.");
-                    return 1;
-                }
-                bootstrap.WaitForExit();
-                if (bootstrap.ExitCode != 0)
-                {
-                    string bootstrapLog = WriteDiagnosticLog(
-                        "PowerShell bootstrap exited with code " +
-                        bootstrap.ExitCode +
-                        ". Child diagnostic: " +
-                        bootstrapErrorPath,
-                        null
-                    );
-                    ShowError(
-                        "Quota Watch failed to start.\n\n" +
-                        "Diagnostic log:\n" +
-                        bootstrapLog
-                    );
-                    return bootstrap.ExitCode;
-                }
-            }
-
-            string handoffText = File.Exists(handoffPath)
-                ? File.ReadAllText(handoffPath, Encoding.UTF8)
-                : "";
-            if (!TryParseRuntimeHandoff(
-                handoffText,
-                out handoff
-            ))
-            {
-                string handoffLog = WriteDiagnosticLog(
-                    "Runtime handoff file was missing or invalid: " +
-                    handoffPath,
-                    null
-                );
-                ShowError(
-                    "Quota Watch did not return a valid runtime handoff.\n\n" +
-                    "Diagnostic log:\n" +
-                    handoffLog
-                );
-                return 1;
-            }
-
-            if (handoff.DesktopExited)
-            {
-                return handoff.DesktopExitCode;
-            }
-
-            int desktopExitCode = WaitForExternalProcessExit(
-                handoff.DesktopProcessId
-            );
-            if (desktopExitCode != 0)
-            {
-                WriteDiagnosticLog(
-                    handoffText,
-                    null
-                );
-            }
-            return desktopExitCode;
-        }
-        catch (Exception exception)
-        {
-            StopOwnedBackend(handoff);
-            string logPath = WriteDiagnosticLog(
-                "Runtime handoff: " + handoffPath,
-                exception
-            );
-            ShowError(
-                "Quota Watch runtime supervision failed.\n\n" +
-                "Diagnostic log:\n" +
-                logPath
-            );
-            return 1;
-        }
-        finally
-        {
-            StopOwnedBackend(handoff);
-            DeleteFileIfPresent(handoffPath);
-        }
-    }
-
-    private static int WaitForExternalProcessExit(int processId)
-    {
-        IntPtr process = OpenProcess(
-            SynchronizeAccess | ProcessQueryLimitedInformationAccess,
-            false,
-            processId
-        );
-        if (process == IntPtr.Zero)
-        {
-            // The desktop may exit between the PowerShell handoff and this
-            // attachment. The backend still needs normal cleanup.
-            return 0;
-        }
-
-        try
-        {
-            if (WaitForSingleObject(process, InfiniteWait) != WaitObject0)
-            {
-                return 0;
-            }
-
-            uint exitCode;
-            if (!GetExitCodeProcess(process, out exitCode))
-            {
-                return 0;
-            }
-            return unchecked((int)exitCode);
-        }
-        finally
-        {
-            CloseHandle(process);
-        }
-    }
-
-    private static void StopOwnedBackend(RuntimeHandoff handoff)
-    {
-        if (
-            handoff == null ||
-            !handoff.BackendOwned ||
-            handoff.BackendProcessId <= 0
-        )
-        {
-            return;
-        }
-
-        handoff.BackendOwned = false;
-        try
-        {
-            using (Process backend = Process.GetProcessById(
-                handoff.BackendProcessId
-            ))
-            {
-                if (
-                    backend.StartTime.ToUniversalTime().Ticks !=
-                    handoff.BackendStartedUtcTicks
-                )
-                {
-                    return;
-                }
-            }
-        }
-        catch (ArgumentException)
-        {
-            // The owned backend already exited, so there is nothing to stop.
-            return;
-        }
-        catch (InvalidOperationException)
-        {
-            return;
-        }
-        StopProcessTree(handoff.BackendProcessId);
-    }
-
-    private static bool TryParseRuntimeHandoff(
-        string diagnostic,
-        out RuntimeHandoff handoff
-    )
-    {
-        handoff = null;
-        string[] lines = diagnostic.Replace("\r", "").Split('\n');
-        foreach (string line in lines)
-        {
-            if (!line.StartsWith(
-                "QUOTA_WATCH_RUNTIME_HANDOFF|",
-                StringComparison.Ordinal
-            ))
-            {
-                continue;
-            }
-
-            var fields = new Dictionary<string, int>(
-                StringComparer.OrdinalIgnoreCase
-            );
-            string[] parts = line.Split('|');
-            for (int index = 1; index < parts.Length; index++)
-            {
-                int separator = parts[index].IndexOf('=');
-                if (separator <= 0)
-                {
-                    continue;
-                }
-                string name = parts[index].Substring(0, separator);
-                int value;
-                if (Int32.TryParse(
-                    parts[index].Substring(separator + 1),
-                    out value
-                ))
-                {
-                    fields[name] = value;
-                }
-            }
-
-            int backendOwned;
-            int backendProcessId;
-            long backendStartedUtcTicks;
-            int desktopProcessId;
-            int desktopExited;
-            int desktopExitCode;
-            if (
-                !fields.TryGetValue("backendOwned", out backendOwned) ||
-                !fields.TryGetValue("backendPid", out backendProcessId) ||
-                !TryReadLongField(
-                    parts,
-                    "backendStartedUtcTicks",
-                    out backendStartedUtcTicks
                 ) ||
-                !fields.TryGetValue("desktopPid", out desktopProcessId) ||
-                !fields.TryGetValue("desktopExited", out desktopExited) ||
-                !fields.TryGetValue("desktopExitCode", out desktopExitCode) ||
-                desktopProcessId <= 0 ||
-                (
-                    backendOwned != 0 &&
-                    (
-                        backendProcessId <= 0 ||
-                        backendStartedUtcTicks <= 0
-                    )
-                )
-            )
-            {
-                return false;
-            }
-
-            handoff = new RuntimeHandoff
-            {
-                BackendOwned = backendOwned != 0,
-                BackendProcessId = backendProcessId,
-                BackendStartedUtcTicks = backendStartedUtcTicks,
-                DesktopProcessId = desktopProcessId,
-                DesktopExited = desktopExited != 0,
-                DesktopExitCode = desktopExitCode,
-            };
-            return true;
-        }
-        return false;
-    }
-
-    private static bool TryReadLongField(
-        string[] parts,
-        string fieldName,
-        out long value
-    )
-    {
-        value = 0;
-        foreach (string part in parts)
-        {
-            int separator = part.IndexOf('=');
-            if (
-                separator <= 0 ||
-                !String.Equals(
-                    part.Substring(0, separator),
-                    fieldName,
-                    StringComparison.Ordinal
+                String.Equals(
+                    argument,
+                    "-DisableGlm",
+                    StringComparison.OrdinalIgnoreCase
                 )
             )
             {
                 continue;
             }
-            return Int64.TryParse(
-                part.Substring(separator + 1),
-                out value
-            );
+            return false;
         }
-        return false;
+        return true;
     }
 
-    private static void DeleteFileIfPresent(string path)
+    private static string FindDesktopExecutable(string repoRoot)
     {
-        try
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-        catch
-        {
-            // Temporary handoff cleanup must not hide the runtime result.
-        }
-    }
-
-    private static void StopProcessTree(int rootProcessId)
-    {
-        List<int> processIds = ReadProcessTree(rootProcessId);
-        for (int index = processIds.Count - 1; index >= 0; index--)
-        {
-            try
-            {
-                using (Process process = Process.GetProcessById(
-                    processIds[index]
-                ))
-                {
-                    process.Kill();
-                    process.WaitForExit(5000);
-                }
-            }
-            catch (ArgumentException)
-            {
-                // The process already exited.
-            }
-            catch (InvalidOperationException)
-            {
-                // The process already exited.
-            }
-            catch
-            {
-                // Cleanup is best-effort; a later launch still verifies the
-                // health endpoint and never stops an unrelated port owner.
-            }
-        }
-    }
-
-    private static List<int> ReadProcessTree(int rootProcessId)
-    {
-        var processIds = new List<int>();
-        processIds.Add(rootProcessId);
-
-        IntPtr snapshot = CreateToolhelp32Snapshot(
-            ProcessSnapshotFlag,
-            0
+        string buildRoot = Path.Combine(
+            repoRoot,
+            "quota_watch",
+            "build",
+            "windows"
         );
-        if (snapshot == InvalidHandleValue)
+        foreach (string architecture in new[] { "x64", "arm64" })
         {
-            return processIds;
-        }
-
-        var parentByProcess = new Dictionary<int, int>();
-        try
-        {
-            var entry = new ProcessEntry();
-            entry.Size = (uint)Marshal.SizeOf(typeof(ProcessEntry));
-            if (Process32First(snapshot, ref entry))
+            string candidate = Path.Combine(
+                buildRoot,
+                architecture,
+                "runner",
+                "Release",
+                "quota_watch.exe"
+            );
+            if (File.Exists(candidate))
             {
-                do
-                {
-                    parentByProcess[(int)entry.ProcessId] =
-                        (int)entry.ParentProcessId;
-                    entry.Size =
-                        (uint)Marshal.SizeOf(typeof(ProcessEntry));
-                }
-                while (Process32Next(snapshot, ref entry));
+                return candidate;
             }
         }
-        finally
-        {
-            CloseHandle(snapshot);
-        }
-
-        bool added;
-        do
-        {
-            added = false;
-            foreach (KeyValuePair<int, int> pair in parentByProcess)
-            {
-                if (
-                    processIds.Contains(pair.Value) &&
-                    !processIds.Contains(pair.Key)
-                )
-                {
-                    processIds.Add(pair.Key);
-                    added = true;
-                }
-            }
-        }
-        while (added);
-
-        return processIds;
+        return null;
     }
 
     private static bool ActivateExistingQuotaWatch()
     {
+#if QUOTA_WATCH_LAUNCHER_TEST
+        // Launcher tests run beside the user's real Quota Watch instance.
+        // Never activate or inspect that unrelated production window.
+        return false;
+#else
         foreach (Process process in Process.GetProcessesByName("quota_watch"))
         {
             using (process)
@@ -827,13 +344,11 @@ internal static class QuotaWatchLauncher
                         {
                             return true;
                         }
-
                         flutterWindow = window;
                         return false;
                     },
                     IntPtr.Zero
                 );
-
                 if (flutterWindow != IntPtr.Zero)
                 {
                     return PostMessage(
@@ -846,22 +361,7 @@ internal static class QuotaWatchLauncher
             }
         }
         return false;
-    }
-
-    private static void AppendDiagnostic(
-        StringBuilder diagnostic,
-        object diagnosticLock,
-        string line
-    )
-    {
-        if (line == null)
-        {
-            return;
-        }
-        lock (diagnosticLock)
-        {
-            diagnostic.AppendLine(line);
-        }
+#endif
     }
 
     private static string WriteDiagnosticLog(
@@ -888,7 +388,7 @@ internal static class QuotaWatchLauncher
         if (!String.IsNullOrWhiteSpace(diagnostic))
         {
             content.AppendLine();
-            content.Append(diagnostic);
+            content.AppendLine(diagnostic);
         }
         if (exception != null)
         {
@@ -916,51 +416,12 @@ internal static class QuotaWatchLauncher
         var directory = new DirectoryInfo(startDirectory);
         for (int depth = 0; directory != null && depth < 6; depth++)
         {
-            string script = Path.Combine(
-                directory.FullName,
-                "scripts",
-                "start_quota_watch.ps1"
-            );
-            if (File.Exists(script))
+            if (FindDesktopExecutable(directory.FullName) != null)
             {
                 return directory.FullName;
             }
             directory = directory.Parent;
         }
         return null;
-    }
-
-    private static string QuoteArgument(string value)
-    {
-        if (value.Length > 0 &&
-            value.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '"' }) < 0)
-        {
-            return value;
-        }
-
-        var quoted = new StringBuilder();
-        quoted.Append('"');
-        int backslashes = 0;
-        foreach (char character in value)
-        {
-            if (character == '\\')
-            {
-                backslashes++;
-                continue;
-            }
-            if (character == '"')
-            {
-                quoted.Append('\\', backslashes * 2 + 1);
-                quoted.Append('"');
-                backslashes = 0;
-                continue;
-            }
-            quoted.Append('\\', backslashes);
-            backslashes = 0;
-            quoted.Append(character);
-        }
-        quoted.Append('\\', backslashes * 2);
-        quoted.Append('"');
-        return quoted.ToString();
     }
 }

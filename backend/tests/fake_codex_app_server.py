@@ -54,6 +54,9 @@ def main() -> int:
         if mode == "invalid_json":
             print("{broken", flush=True)
             continue
+        if mode == "oversized_line":
+            print('"' + ("x" * (1024 * 1024 + 1)) + '"', flush=True)
+            continue
         if mode == "auth_error":
             _send(
                 {

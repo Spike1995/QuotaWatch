@@ -1,0 +1,46 @@
+{
+  "_comment": "Python/Dart 共享黄金结果。仅由上一级目录四个脱敏响应样例派生，不含真实账户数据或凭据。",
+  "usage_typical.json": [
+    {
+      "label": "Weekly limit",
+      "used": 320000000.0,
+      "limit": 1000000000.0,
+      "unit": "tokens",
+      "resetAt": "2026-07-28T00:00:00Z"
+    },
+    {
+      "label": "5h limit",
+      "used": 12000000.0,
+      "limit": 40000000.0,
+      "unit": "tokens",
+      "resetAt": null
+    }
+  ],
+  "usage_remaining_fallback.json": [
+    {
+      "label": "Weekly limit",
+      "used": 800.0,
+      "limit": 1000.0,
+      "unit": "tokens",
+      "resetAt": null
+    }
+  ],
+  "usage_only_5h_limit.json": [
+    {
+      "label": "5h limit",
+      "used": 12000000.0,
+      "limit": 40000000.0,
+      "unit": "tokens",
+      "resetAt": null
+    }
+  ],
+  "usage_nanosecond_reset.json": [
+    {
+      "label": "Weekly limit",
+      "used": 40.0,
+      "limit": 1000.0,
+      "unit": "tokens",
+      "resetAt": "2025-12-23T05:24:18.443553Z"
+    }
+  ]
+}

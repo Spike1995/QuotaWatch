@@ -5,6 +5,7 @@ import '../../data/models/credential_profile.dart';
 import '../../data/models/quota_models.dart';
 import '../../data/repositories/backend_endpoint_policy.dart';
 import '../../data/repositories/credential_profile_repository.dart';
+import '../../data/repositories/platform_credential_profile_repository.dart';
 
 /// 本机安全配置面板。
 ///
@@ -35,7 +36,8 @@ class _CredentialProfilesPanelState extends State<CredentialProfilesPanel> {
   bool _loading = false;
   String? _loadError;
 
-  CredentialProfileRepository get _repository => CredentialProfileRepository(
+  CredentialProfileStore get _repository =>
+      createPlatformCredentialProfileRepository(
         client: widget.client,
         baseUrl: widget.backendUrl,
       );

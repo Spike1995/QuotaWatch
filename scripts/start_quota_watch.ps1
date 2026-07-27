@@ -37,7 +37,19 @@ $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptDirectory
 $backendRoot = Join-Path $repoRoot 'backend'
 $flutterRoot = Join-Path $repoRoot 'quota_watch'
-$backendPython = Join-Path $backendRoot '.venv\Scripts\pythonw.exe'
+$runtimeBackendPython = Join-Path (
+    $backendRoot
+) '.venv-runtime\Scripts\pythonw.exe'
+$developmentBackendPython = Join-Path (
+    $backendRoot
+) '.venv\Scripts\pythonw.exe'
+$backendPython = if (
+    Test-Path -LiteralPath $runtimeBackendPython -PathType Leaf
+) {
+    $runtimeBackendPython
+} else {
+    $developmentBackendPython
+}
 $defaultFlutter = 'E:\Move\flutter\bin\flutter.bat'
 $defaultDesktopExecutable = Join-Path (
     $flutterRoot
@@ -55,7 +67,10 @@ function Write-Stage {
 
 function Assert-LauncherDependencies {
     if (-not (Test-Path -LiteralPath $backendPython -PathType Leaf)) {
-        throw "Backend Python was not found: $backendPython"
+        throw (
+            'Backend Python was not found. Build the runtime environment with ' +
+            'scripts\build_runtime_venv.ps1 or create backend\.venv.'
+        )
     }
     if (-not (Test-Path -LiteralPath $backendRoot -PathType Container)) {
         throw "Backend directory was not found: $backendRoot"
@@ -187,6 +202,11 @@ function Test-QuotaWatchBackend {
 }
 
 function Set-BackendChildEnvironment {
+    # Keep the generated runtime environment immutable and size-stable.
+    Set-TemporaryProcessEnvironment `
+        -Name 'PYTHONDONTWRITEBYTECODE' `
+        -Value '1'
+
     if ($SmokeTest) {
         foreach ($name in @(
             'QUOTA_WATCH_CODEX_REAL',
@@ -267,6 +287,7 @@ function Start-OwnedBackend {
     try {
         Set-BackendChildEnvironment
         $arguments = @(
+            '-B',
             '-m',
             'uvicorn',
             'app.main:app',

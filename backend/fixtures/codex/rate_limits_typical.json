@@ -1,0 +1,22 @@
+{
+  "_comment": "脱敏样例：Codex app-server account/rateLimits/read 典型 result，仅保留白名单字段，无真实账户数据或凭据。",
+  "rateLimits": {
+    "limitId": "codex",
+    "planType": "plus",
+    "primary": {
+      "usedPercent": 25,
+      "windowDurationMins": 300,
+      "resetsAt": 1760000000
+    },
+    "secondary": {
+      "usedPercent": 80,
+      "windowDurationMins": 10080,
+      "resetsAt": 1760500000
+    },
+    "credits": {
+      "hasCredits": true,
+      "unlimited": false,
+      "balance": "50"
+    }
+  }
+}

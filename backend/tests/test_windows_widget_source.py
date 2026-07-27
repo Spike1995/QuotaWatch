@@ -127,10 +127,45 @@ def test_windows_autostart_uses_current_user_gui_launcher_only() -> None:
     assert "Microsoft\\\\Windows\\\\CurrentVersion\\\\Run" in native_cpp
     assert 'kStartupValueName[] = L"Quota Watch"' in native_cpp
     assert "kLauncherFileName" in native_cpp
-    assert "scripts\\\\start_quota_watch.ps1" in native_cpp
+    assert "scripts\\\\start_quota_watch.ps1" not in native_cpp
     assert "RegSetValueExW" in native_cpp
     assert "RegDeleteValueW" in native_cpp
     assert "advapi32" in cmake
+
+
+def test_provider_credential_bridge_is_fixed_target_read_only_and_never_logged() -> None:
+    native_dart = WINDOW_NATIVE_DART.read_text(encoding="utf-8")
+    native_cpp = NATIVE_CPP.read_text(encoding="utf-8")
+
+    assert "'readProviderApiKey'" in native_dart
+    assert '"readProviderApiKey"' in native_cpp
+    assert 'L"QuotaWatch/Kimi"' in native_cpp
+    assert 'L"QuotaWatch/GLM"' in native_cpp
+    assert "CredReadW" in native_cpp
+    assert "CredFree" in native_cpp
+    assert "CredEnumerateW" not in native_cpp
+    assert "std::cout" not in native_cpp
+    assert "printf(" not in native_cpp
+
+
+def test_provider_credential_mutations_and_metadata_use_fixed_native_boundaries() -> None:
+    native_dart = WINDOW_NATIVE_DART.read_text(encoding="utf-8")
+    native_cpp = NATIVE_CPP.read_text(encoding="utf-8")
+
+    for method in (
+        "writeProviderApiKey",
+        "deleteProviderApiKey",
+        "readCredentialMetadata",
+        "writeCredentialMetadata",
+    ):
+        assert method in native_dart
+        assert f'"{method}"' in native_cpp
+    assert "CredWriteW" in native_cpp
+    assert "CredDeleteW" in native_cpp
+    assert "CRED_PERSIST_LOCAL_MACHINE" in native_cpp
+    assert "credential_profiles.json" in native_cpp
+    assert "MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH" in native_cpp
+    assert "kMaxPersistedCredentialBytes = 2048" in native_cpp
 
 
 def test_hide_to_tray_does_not_minimize_the_widget_window() -> None:
@@ -231,7 +266,10 @@ def test_seamless_tiles_shape_the_opaque_window_without_layered_composition() ->
     assert "SetWindowRgn(window, combined, TRUE)" in native_cpp
     assert "SetWindowRgn(window, nullptr, TRUE)" in native_cpp
     assert "WS_EX_LAYERED" not in native_cpp
-    assert "setOpacity(" not in controller
+    # Stage 12 floating UX intentionally fades the complete native window on
+    # idle. This uses window_manager's compositor opacity and must not restore
+    # the old per-pixel WS_EX_LAYERED rendering path.
+    assert "await windowManager.setOpacity(opacity)" in controller
     assert "_cardKeys" in home_page
     assert "localToGlobal(Offset.zero)" in home_page
     assert "with RouteAware" in home_page

@@ -46,6 +46,82 @@ class WindowNative {
     }
   }
 
+  /// Reads one whitelisted Provider key from Windows Credential Manager.
+  ///
+  /// The native runner only accepts `kimi` or `glm` and maps them to the fixed
+  /// Quota Watch targets. The returned value is held only for the immediate
+  /// provider request and must never be logged, persisted, or surfaced in UI.
+  static Future<String?> readProviderApiKey(String provider) async {
+    if (provider != 'kimi' && provider != 'glm') return null;
+    try {
+      return await _channel.invokeMethod<String>(
+        'readProviderApiKey',
+        <String, dynamic>{'provider': provider},
+      );
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  static Future<bool> writeProviderApiKey(
+    String provider,
+    String secret,
+  ) async {
+    if (provider != 'kimi' && provider != 'glm') return false;
+    try {
+      return await _channel.invokeMethod<bool>(
+            'writeProviderApiKey',
+            <String, dynamic>{'provider': provider, 'secret': secret},
+          ) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  static Future<bool> deleteProviderApiKey(String provider) async {
+    if (provider != 'kimi' && provider != 'glm') return false;
+    try {
+      return await _channel.invokeMethod<bool>(
+            'deleteProviderApiKey',
+            <String, dynamic>{'provider': provider},
+          ) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
+  static Future<String?> readCredentialMetadata() async {
+    try {
+      return await _channel.invokeMethod<String>('readCredentialMetadata');
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    }
+  }
+
+  static Future<bool> writeCredentialMetadata(String contents) async {
+    try {
+      return await _channel.invokeMethod<bool>(
+            'writeCredentialMetadata',
+            <String, dynamic>{'contents': contents},
+          ) ??
+          false;
+    } on MissingPluginException {
+      return false;
+    } on PlatformException {
+      return false;
+    }
+  }
+
   /// 设置窗口是否为"工具窗口"（WS_EX_TOOLWINDOW）。
   /// 工具窗口通常会从任务栏和 Alt+Tab 列表消失；当前生产路径保持 false，
   /// 因为实机运行期切换曾让 Flutter surface 变透明。
