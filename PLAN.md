@@ -3,6 +3,12 @@
 > 项目目标：做一个手机端 + 桌面端 + Web 端的 App，统一查询 Codex / GLM / Kimi 三家 Coding Plan 的
 > 已用额度、剩余额度、重置时间、到期日期。
 >
+> 2026-07-23 实施更新：Codex 已改用官方本地 `codex app-server`，项目不读取 `auth.json`；Kimi
+> 默认关闭 Adapter 已完成脱敏真实结构验证；GLM 默认关闭 Adapter 与 `all_real` 已完成离线验证及
+> 用户授权的脱敏本机结构检查；当前三窗口契约漂移已修复，三项 `percentage` 均按已用比例解析。
+> 一键 Windows 启动器已通过自动与真实
+> 启动健康验证。接口证据与合规结论以 `docs/API_RESEARCH.md` 第零节为准。
+>
 > 项目同时是**零基础系统性学习 AI coding 与 agent** 的载体：每阶段学一个知识点、产出一个可见成果、
 > 用 AI 工具辅助。
 
@@ -14,6 +20,8 @@
 > **当前学习决策（2026-07-22）：** 学习软件开发流程与 Vibe Coding 能力优先于尽快接入真实数据。
 > 先在 Windows 上用假数据完成“需求 → 实现 → 测试 → 审查 → 复盘”闭环，再引入本地假后端，
 > 最后才接真实额度 API 和扩展其他平台。
+> 学习以全栈交付流程为骨架：前端、契约、后端/API、测试、Git 和发布证据贯通推进；Dart、Flutter、
+> Python 等技术细节按当前切片即时学习，不把路线变成某一语言或框架的专项课程。
 
 ---
 
@@ -21,12 +29,13 @@
 
 | 服务 | 查询难度 | 鉴权方式 | 全平台支持 | 数据来源 |
 |------|---------|---------|----------|---------|
-| **Codex** | ⭐⭐ | OAuth token（`~/.codex/auth.json`）+ `chatgpt-account-id` header | 桌面直读，移动/Web 需后端代理 | `chatgpt.com/backend-api/wham/usage`，返回 `primary_window`(5h)/`secondary_window`(7d) 的 used/remaining/reset |
-| **Kimi** | ⭐ | `sk-kimi-xxx` Coding Key | 接口可跨平台请求，但公开客户端不得内置 Key | `api.kimi.com/coding/v1/usages` |
-| **GLM** | ⭐⭐ | Coding Plan 专用 Bearer Key | 接口可跨平台请求，但公开客户端不得内置 Key | `open.bigmodel.cn/api/monitor/usage/quota/limit` |
+| **Codex** | ⭐⭐ | 登录由本机官方 Codex 进程管理 | 本机 FastAPI 调用官方进程；公开部署需另做安全设计 | `codex app-server` / `account/rateLimits/read` |
+| **Kimi** | ⭐ | `sk-kimi-xxx` Coding Key，仅在本地后端环境变量 | 后端可请求；公开客户端不得内置 Key | `api.kimi.com/coding/v1/usages` |
+| **GLM** | ⭐⭐⭐ | 官方插件把 Coding Plan auth 值原样放入 `Authorization` | 代码已实现但第三方监控许可待确认 | `open.bigmodel.cn/api/monitor/usage/quota/limit` |
 
 **生产架构结论**：要支持“手机 + 桌面 + Web”，最终采用「**前端 App + 后端服务**」两层架构。
-主要原因是公开前端无法安全保管 Kimi/GLM Key，且 Codex 在非桌面场景需要代理 OAuth 凭据。
+主要原因是公开前端无法安全保管 Kimi/GLM Key；当前 Codex 路径还依赖用户本机已登录的官方进程，
+不能直接照搬到公共多用户后端。
 
 **学习实现顺序**：`Flutter + Mock` → `Flutter + 本地 FastAPI 假接口` → `真实 Codex` →
 `真实 Kimi/GLM`。MCP 中已经配置的 Kimi/GLM coding worker 是开发辅助模型，不是 Quota Watch
@@ -34,29 +43,23 @@
 
 ### 关键端点参考（供阶段 6-7 真实数据接入时重新验证）
 
-**Codex（已调研确认）**
-- 主端点：`GET https://chatgpt.com/backend-api/wham/usage`
-- 备端点：`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits`（累积恢复额度）
-- Token 交换：`GET https://chatgpt.com/api/auth/session`
-- Token 刷新：`POST https://auth.openai.com/oauth/token`
-- 鉴权：`Authorization: Bearer <access_token>` + `chatgpt-account-id: <account_id>`
-- 本地凭据：`~/.codex/auth.json`（含 `access_token` / `refresh_token` / `id_token` / `last_refresh` / `chatgpt_account_id`）
-- JSON 关键字段：
-  - `rate_limit.primary_window`：`limit_window_seconds=18000`(5h)、`used_percent`、`remaining_percent`、`reset_after_seconds`、`resets_at`、`is_unlimited`
-  - `rate_limit.secondary_window`：`limit_window_seconds=604800`(7d)，同上字段
-  - 顶层 `plan_type` 枚举（`plus` / `pro` / `team` / `business` / `free`）
-  - 可选 `credits` 块（累积/恢复额度）
+**Codex（已实施）**
+- 本机入口：官方 `codex app-server` JSONL 协议。
+- 只读方法：`account/rateLimits/read`。
+- 登录与凭据：由官方 Codex 进程管理；Quota Watch 不读取、解析或刷新 `auth.json`。
+- `wham/usage` 等网页内部端点只保留为历史调研，禁止作为当前实现。
 
-**Kimi（参考开源实现 `Golden0Voyager/kimi-code-usage`）**
+**Kimi（按官方 `MoonshotAI/kimi-code` 源码实施）**
 - 鉴权：`sk-kimi-xxx` API Key，直接放 `Authorization: Bearer`
 - 已调研端点：`GET https://api.kimi.com/coding/v1/usages`
 - 本地学习实验可直连；公开 Web/移动端必须通过后端，避免 Key 进入构建产物
 
 **GLM（Coding Plan 监控端点）**
 - 端点：`https://open.bigmodel.cn/api/monitor/usage/quota/limit`
-- 鉴权：Coding Plan 专用 Bearer Key，不使用旧版 Cookie 抓取方案
-- 官方插件参考：`glm-plan-usage@zai-coding-plugins`
-- ⚠️ 高风险：接口随时可能失效，需降级处理
+- 鉴权契约：官方插件把 `ANTHROPIC_AUTH_TOKEN` 原样放入 `Authorization`；不使用 Cookie 抓取方案
+- 官方插件参考：`zai-org/zai-coding-plugins/plugins/glm-plan-usage`
+- 当前边界：Adapter 默认关闭、测试纯离线；真实第三方调用许可待确认
+- ZCode：可人工显示套餐统计，但当前官方文档未提供额度导出、CLI 或本地只读 API
 
 ---
 
@@ -72,14 +75,14 @@
 ┌───────────────▼─────────────────────────────┐
 │  后端服务（Python FastAPI，新手友好）          │
 │  - 三家平台适配器（Codex/Kimi/GLM）           │
-│  - 凭据安全存储（加密）+ Token 自动刷新        │
+│  - 本机进程环境变量 + 官方 Codex 登录进程       │
 │  - 缓存、限流、错误处理                        │
 └───────────────┬─────────────────────────────┘
                 │
          ┌──────┴──────┬──────────┐
          ▼             ▼          ▼
-   Codex 用量端点  Kimi 用量端点  GLM 用量端点
-   (OAuth 代理)   (Key 转发)  (Key 转发)
+   Codex app-server  Kimi 用量端点  GLM 用量端点
+   (官方本机进程)   (本机 Key)      (默认关闭)
 
    可选旁路：产品 MCP Server（最终阶段，让 Agent 读取 Quota Watch 的额度结果）
 ```
@@ -147,9 +150,10 @@
 
 ## 六、风险与诚实告知
 
-1. **GLM 接口可能变化**：当前调研使用 Coding Plan 专用 Bearer Key 和监控端点，但仍需用真实响应与官方实现复核。
-   若失败，App 显示“GLM 暂不可查”，且不影响其他服务。
-2. **Codex token 过期**：OAuth token 有效期短（约 9 天），后端需实现自动刷新；失败时引导用户重新登录。
+1. **GLM 权限与契约风险**：官方插件确认了 wire contract，但未明确授权任意第三方监控工具；因此真实
+   开关仍默认关闭。一次用户授权的本机脱敏结构检查不扩展成公开/商业许可；GLM 失败时只降级该卡。
+2. **Codex 登录或协议失效**：由官方 app-server 管理登录；失败时引导用户检查本机 Codex，不由项目
+   读取 token 或自行刷新。
 3. **iOS 打包门槛**：需要 Mac，建议放最后或用云服务。
 4. **三家服务条款**：第三方接口和自动化访问可能受服务条款限制。优先自用学习；任何公开或商业化发布前，
    都要重新核对当时的条款、隐私要求和接口许可。
@@ -160,15 +164,15 @@
 
 | 阶段 | 状态 | 备注 |
 |------|------|------|
-| 0. 工具链与运行闭环 | 进行中 | Flutter 3.44.2 已安装；Chrome 可用；Android SDK 与 Windows C++ 工具链暂缺，均不阻断当前 Web 学习 |
-| 1. Dart + 静态 UI | 已实现，未验证 | 首页、详情、模型与 Mock 已有；尚未 analyze/run/test |
-| 2. Vibe Coding 工程基线 | 待开始 | Repository、Git diff、测试与回退闭环 |
-| 3. 假数据契约与状态 | 待开始 | JSON 夹具、正常/加载/空/失败状态 |
-| 4. FastAPI 假后端 | 待开始 | 不含凭据的本地 JSON API |
-| 5. 假数据端到端 | 待开始 | ⭐ 第一个完整学习里程碑 |
-| 6. Codex 真实额度 | 待开始 | OAuth、Token 刷新与安全边界 |
-| 7. Kimi/GLM + 三家聚合 | 待开始 | Coding Plan Key、契约漂移与降级 |
-| 8. 产品化 | 待开始 | UX、缓存、日志、测试矩阵 |
+| 0. 工具链与运行闭环 | 已验证 + 能讲解 | Flutter 3.44.2 已安装；Web 工程、自动化验证、Edge 人工验收、截图及启动/功能边界讲解均已完成 |
+| 1. Dart + 静态 UI | 已验证，待全栈迁移 | 已区分 95%～不足 100%“紧张”和 100%“耗尽”；用户确认 8 个测试通过 |
+| 2. Vibe Coding 工程基线 | 代码已验证，概念按需复盘 | Repository 接口和注入测试已经建立；后续继续用小步 diff 和测试巩固 |
+| 3. 假数据契约与状态 | 已验证 | 正常、加载、空、未配置、部分失败、全部失败场景均有离线测试 |
+| 4. FastAPI 假后端 | 已验证 | `/health` 与六种额度场景已实现；8 个 pytest 通过，不含凭据和外网请求 |
+| 5. 假数据端到端 | 已验证 | Riverpod + HTTP Repository + 设置页完成；29 个 Flutter 测试、Web 构建及真实浏览器 E2E 通过 |
+| 6. Codex 真实额度 | 代码与自动验证完成，待 UI 验收 | 官方 app-server 只读纵切片；脱敏真实结构读取完成 |
+| 7. Kimi/GLM + 三家聚合 | 代码与自动验证完成，待 UI 验收 | Kimi/GLM 脱敏本机结构检查；默认关闭 Adapter 与 `all_real` 失败隔离 |
+| 8. 产品化 | 一键启动与 GLM 漂移修复切片已验证，待用户数值对照 | Windows 启动器、三窗口双契约解析、端口保护；后端 431、Flutter 45、Web/Playwright 通过 |
 | 9. 开源发布 | 待开始 | Windows 优先；Web/Android 随后，iOS 可选 |
 | 10. 产品 MCP Server | 可选 | 与开发阶段使用的 Kimi/GLM worker 无关 |
 
@@ -177,9 +181,9 @@
 ## 八、参考资料
 
 - [OpenAI Codex 套餐说明](https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan)
-- [Codex CLI rate_limits 端点讨论](https://github.com/openai/codex/issues/10869)
-- [Kimi 用量查询工具（MCP + CLI）](https://github.com/Golden0Voyager/kimi-code-usage)
+- [Codex app-server 官方文档](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md)
+- [Kimi Code 官方源码](https://github.com/MoonshotAI/kimi-code)
 - [多平台 Coding Plan 监控（MiniMax + GLM）](https://github.com/JinHanAI/coding-plan-monitor)
 - [GLM Coding Plan 用量查询插件](https://docs.bigmodel.cn/cn/coding-plan/extension/usage-query-plugin)
 - [GLM Coding Plan FAQ（含工具限制）](https://docs.bigmodel.cn/cn/coding-plan/faq)
-- [Kimi API 开放平台](https://platform.kimi.com/docs/overview)
+- [ZCode 使用统计](https://zcode.z.ai/cn/docs/usage-stats)

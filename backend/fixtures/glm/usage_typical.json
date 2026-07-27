@@ -1,0 +1,28 @@
+{
+  "_comment": "脱敏样例：GLM Coding Plan quota/limit 典型响应（双 TOKENS_LIMIT 窗口：5h + 周）。基于官方 zai-org/zai-coding-plugins query-usage.mjs 契约衍生，无真实数据。",
+  "code": 200,
+  "msg": "success",
+  "data": {
+    "code": 200,
+    "limits": [
+      {
+        "type": "TOKENS_LIMIT",
+        "unit": 3,
+        "usage": 40000000,
+        "currentValue": 12345678,
+        "percentage": 31,
+        "nextResetTime": 1760000000000,
+        "message": "5小时滚动窗口"
+      },
+      {
+        "type": "TOKENS_LIMIT",
+        "unit": 6,
+        "usage": 280000000,
+        "currentValue": 89000000,
+        "percentage": 32,
+        "nextResetTime": 1760500000000,
+        "message": "周窗口"
+      }
+    ]
+  }
+}

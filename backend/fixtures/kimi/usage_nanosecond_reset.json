@@ -1,0 +1,9 @@
+{
+  "_comment": "脱敏样例：Kimi Code 响应含纳秒精度 resetAt（官方可达 9 位小数，解析器截断到微秒）。衍生自官方源码注释，无真实数据。",
+  "usage": {
+    "name": "Weekly limit",
+    "used": 40,
+    "limit": 1000,
+    "resetAt": "2025-12-23T05:24:18.443553353Z"
+  }
+}

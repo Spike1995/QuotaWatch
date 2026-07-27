@@ -1,0 +1,28 @@
+{
+  "_comment": "脱敏样例：GLM Coding Plan 响应含 usageDetails（按模型细分）与 TIME_LIMIT 月度项。官方解析器读取 usageDetails 做展示，本项目本期不解析子明细，仅归一顶层窗口。衍生自官方源码，无真实数据。",
+  "code": 200,
+  "data": {
+    "limits": [
+      {
+        "type": "TOKENS_LIMIT",
+        "unit": 3,
+        "usage": 40000000,
+        "currentValue": 12345678,
+        "percentage": 31,
+        "nextResetTime": 1760000000000,
+        "usageDetails": [
+          { "modelName": "glm-4.6", "usage": 40000000, "limit": 40000000, "percentage": 31 },
+          { "modelName": "glm-4.5-air", "usage": 0, "limit": 0, "percentage": 0 }
+        ]
+      },
+      {
+        "type": "TIME_LIMIT",
+        "unit": 0,
+        "usage": 100,
+        "currentValue": 30,
+        "percentage": 30,
+        "nextResetTime": null
+      }
+    ]
+  }
+}

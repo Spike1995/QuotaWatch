@@ -1,0 +1,8 @@
+{
+  "_comment": "脱敏样例：Kimi Code 响应中 used 缺失、只有 remaining + limit。解析器应回退 used = limit - remaining。基于官方测试样例衍生，无真实数据。",
+  "usage": {
+    "remaining": 200,
+    "limit": 1000,
+    "name": "Weekly limit"
+  }
+}

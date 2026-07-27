@@ -7,13 +7,25 @@
 //
 // ============================================================================
 
+// 顶部总览使用 Material 的布局和文字控件。
 import 'package:flutter/material.dart';
+import '../../data/models/quota_models.dart';
+import 'provider_logo.dart';
 
 class SummaryHeader extends StatelessWidget {
-  const SummaryHeader({super.key});
+  final int trackedCount;
+  final String subtitle;
+
+  // const 构造函数表示这个总览本身没有运行时状态，可以复用同一个常量配置。
+  const SummaryHeader({
+    super.key,
+    required this.trackedCount,
+    required this.subtitle,
+  });
 
   @override
   Widget build(BuildContext context) {
+    // Theme.of(context) 从祖先 MaterialApp 读取当前主题，避免在每个 Widget 重复写颜色。
     final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(20),
@@ -32,7 +44,7 @@ class SummaryHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '已跟踪 3 个套餐',
+            '已跟踪 $trackedCount 个套餐',
             style: theme.textTheme.titleMedium?.copyWith(
               color: theme.colorScheme.onPrimaryContainer,
               fontWeight: FontWeight.w600,
@@ -40,19 +52,21 @@ class SummaryHeader extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            '当前模式：模拟数据，可下拉刷新',
+            subtitle,
             style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onPrimaryContainer.withOpacity(0.8),
+              color:
+                  theme.colorScheme.onPrimaryContainer.withValues(alpha: 0.8),
             ),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: const [
-              _Dot(color: Color(0xFF10A37F), label: 'Codex'),
-              SizedBox(width: 16),
-              _Dot(color: Color(0xFF1D9BF0), label: 'Kimi'),
-              SizedBox(width: 16),
-              _Dot(color: Color(0xFF615CED), label: 'GLM'),
+          // Wrap 在窄屏自动换行，宽屏仍保持一行；圆点升级为各家官方标识。
+          const Wrap(
+            spacing: 16,
+            runSpacing: 8,
+            children: [
+              _ProviderMark(provider: Provider.codex),
+              _ProviderMark(provider: Provider.kimi),
+              _ProviderMark(provider: Provider.glm),
             ],
           ),
         ],
@@ -61,27 +75,20 @@ class SummaryHeader extends StatelessWidget {
   }
 }
 
-class _Dot extends StatelessWidget {
-  final Color color;
-  final String label;
-  const _Dot({required this.color, required this.label});
+// 总览里的单家标记：官方小图标 + 名称，替代原来的彩色圆点。
+class _ProviderMark extends StatelessWidget {
+  final Provider provider;
+  const _ProviderMark({required this.provider});
 
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-          ),
-        ),
+        ProviderLogo(provider: provider, size: 20),
         const SizedBox(width: 6),
         Text(
-          label,
+          provider.displayName,
           style: TextStyle(
             color: Theme.of(context).colorScheme.onPrimaryContainer,
             fontSize: 13,

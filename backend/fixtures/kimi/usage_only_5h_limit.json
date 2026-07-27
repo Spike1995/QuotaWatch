@@ -1,0 +1,9 @@
+{
+  "_comment": "脱敏样例：Kimi Code 响应只含 limits 的 5h 窗口（无 usage 汇总行）。基于官方 MoonshotAI/kimi-cli 测试样例衍生，无真实数据。",
+  "limits": [
+    {
+      "detail": { "used": 12000000, "limit": 40000000, "name": "5h limit" },
+      "window": { "duration": 5, "timeUnit": "HOUR" }
+    }
+  ]
+}

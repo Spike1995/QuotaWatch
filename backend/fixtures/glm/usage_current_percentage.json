@@ -1,0 +1,40 @@
+{
+  "_comment": "2026-07 当前字段形状的完全虚构脱敏样例；数值不来自任何用户账号。",
+  "code": 200,
+  "success": true,
+  "msg": "success",
+  "data": {
+    "level": "test-plan",
+    "limits": [
+      {
+        "type": "TOKENS_LIMIT",
+        "unit": 3,
+        "number": 111,
+        "percentage": 75,
+        "nextResetTime": 1768000000000
+      },
+      {
+        "type": "TOKENS_LIMIT",
+        "unit": 6,
+        "number": 222,
+        "percentage": 50,
+        "nextResetTime": 1768400000000
+      },
+      {
+        "type": "TIME_LIMIT",
+        "unit": 5,
+        "number": 333,
+        "percentage": 25,
+        "usage": 999,
+        "currentValue": 123,
+        "remaining": 456,
+        "usageDetails": [
+          {
+            "type": "test-tool"
+          }
+        ],
+        "nextResetTime": 1768800000000
+      }
+    ]
+  }
+}

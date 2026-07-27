@@ -1,0 +1,15 @@
+{
+  "_comment": "脱敏样例：Kimi Code /coding/v1/usages 典型响应。基于官方 MoonshotAI/kimi-cli 与 kimi-code 源码（L2）及官方测试样例衍生，不含任何真实账户数据或凭据。字段契约见 docs/API_RESEARCH.md §三。",
+  "usage": {
+    "name": "Weekly limit",
+    "used": 320000000,
+    "limit": 1000000000,
+    "resetAt": "2026-07-28T00:00:00Z"
+  },
+  "limits": [
+    {
+      "detail": { "used": 12000000, "limit": 40000000, "name": "5h limit" },
+      "window": { "duration": 5, "timeUnit": "HOUR" }
+    }
+  ]
+}
